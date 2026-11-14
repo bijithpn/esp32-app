@@ -1,0 +1,32 @@
+CHIBI CRITTERS 3D - LICENCE
+Copyright (c) 2026 DhanVarsha Consultant Ltd
+
+By purchasing or downloading this asset pack you agree to the following.
+
+YOU MAY
+  - Use the assets in unlimited personal and commercial projects, including
+    games, apps, prototypes, videos and game-jam entries.
+  - Modify, recolour, resize and combine the assets for use in your projects.
+  - Distribute the assets as part of a finished project (for example, packaged
+    inside your game's build), provided they are not easily extractable as a
+    standalone collection.
+
+YOU MAY NOT
+  - Resell, redistribute, share or give away the assets themselves, in
+    original or modified form, as individual files, asset packs, templates,
+    or through any marketplace or download site.
+  - Claim the assets as your own original artwork, or register them (or any
+    work mainly consisting of them) as a trademark or logo.
+  - Use the assets as a dataset to train machine-learning models.
+
+CREDIT
+  Not required, but appreciated: "Art: Chibi Critters 3D by
+  DhanVarsha Consultant Ltd".
+
+AI ASSISTANCE
+  These assets were created with the assistance of AI tools and then reviewed
+  and curated by the publisher.
+
+NO WARRANTY
+  The assets are provided "as is", without warranty of any kind. The publisher
+  is not liable for any claim or damages arising from their use.

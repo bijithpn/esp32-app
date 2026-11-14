@@ -1,0 +1,361 @@
+// ESP32 Hub - modular scene firmware for a 1.8" ST7735 (128x160, landscape 160x128)
+// Control it from the Flutter app (Wi-Fi HTTP, MQTT remote, BLE setup) or any browser.
+//
+// First boot (no saved Wi-Fi): the board starts a hotspot "ESP32-Hub" (password hub12345).
+// Join it, open http://192.168.4.1 (or use the app) and enter your home Wi-Fi.
+//
+// Wiring (unchanged): CS=15 DC/A0=2 RST=4 SCK=18 SDA/MOSI=23 LED=3V3 VCC=3V3 GND=GND
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7735.h>
+#include <SPI.h>
+#include <WiFi.h>
+#include <WebServer.h>
+#include <ESPmDNS.h>
+#include <Preferences.h>
+#include <ArduinoJson.h>
+#include <time.h>
+#include <ArduinoOTA.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
+#include "mbedtls/base64.h"
+#include <Update.h>
+#include <esp_mac.h>
+#include "esp_bt.h"
+#include "qrcode_lib.h"   // vendored copy of the MIT-licensed "QRCode" library (ESP-IDF ships a different qrcode.h)
+
+#define FW_VERSION "0.3.0"
+#define TFT_CS 15
+#define TFT_DC 2
+#define TFT_RST 4
+#define TFT_SCK 18
+#define TFT_MOSI 23
+#define TAB INITR_BLACKTAB      // try INITR_GREENTAB / INITR_REDTAB if colors/edges look wrong
+#define W 160
+#define H 128
+#define AP_SSID "ESP32-Hub"
+#define AP_PASS "hub12345"
+
+Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
+GFXcanvas16 cv(W, H);
+Preferences prefs;
+WebServer server(80);
+
+long tzSec = 19800;           // default IST (+5:30); change with {"cmd":"tz","sec":...}
+bool apMode = false;
+String msgText = "Hello!";    // shown by the "message" scene
+String msgApp = "", msgTitle = "";   // set for notification cards (see "notify")
+String hubToken, deviceId;    // security token (16 hex) and 6-char id from the MAC
+bool lockOn = false;          // when true, API calls from the network need the token
+bool mqttOn = false, bleOn = false;
+bool bleAvailable = false;   // BLE can only be used if it was kept at boot (setup mode, or enabled earlier)
+
+static inline uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
+  return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+}
+
+void mqttApply();
+void bleStart();
+void bleStop();
+int findScene(const char* id);
+void switchScene(int idx, JsonVariantConst args, bool save = true);
+void gotoScene(const char* id);
+extern int curScene;
+
+#include "scenes.h"
+#include "scenes2.h"
+#include "webpage.h"
+
+int curScene = 0, prevScene = 0, pendingScene = 0;
+uint32_t lastFrame = 0, infoUntil = 0, msgUntil = 0, autoMs = 0, lastRotate = 0;
+
+int findScene(const char* id) {
+  for (int i = 0; i < SCENE_COUNT; i++) if (!strcmp(SCENES[i].id, id)) return i;
+  return -1;
+}
+
+int nextScene(int from) {   // next scene, skipping the system scenes (info, message)
+  for (int k = 1; k <= SCENE_COUNT; k++) {
+    int i = (from + k) % SCENE_COUNT;
+    if (SCENES[i].inRotation) return i;
+  }
+  return from;
+}
+
+void switchScene(int idx, JsonVariantConst args, bool save) {
+  if (idx < 0 || idx >= SCENE_COUNT) return;
+  if (idx != curScene && !strcmp(SCENES[curScene].id, "anim")) animClear();   // give the frames' RAM back
+  curScene = idx;
+  SCENES[idx].begin(args);
+  lastFrame = 0;
+  lastRotate = millis();
+  if (save && SCENES[idx].inRotation) prefs.putString("scene", SCENES[idx].id);
+}
+
+// Switch to a scene only if not already showing it (used by commands that stream data)
+void gotoScene(const char* id) {
+  int i = findScene(id);
+  if (i < 0 || i == curScene) return;
+  infoUntil = 0; msgUntil = 0;
+  switchScene(i, JsonVariantConst(), false);
+}
+
+// ---------- HTTP API ----------
+void sendJson(int code, JsonDocument& d) {
+  String out; serializeJson(d, out);
+  server.send(code, "application/json", out);
+}
+
+void buildList(JsonDocument& d) {
+  d["device"] = "ESP32-Hub";
+  d["id"] = deviceId;
+  d["fw"] = FW_VERSION;
+  d["scene"] = SCENES[curScene].id;
+  d["ip"] = apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
+  d["ap"] = apMode;
+  d["lock"] = lockOn;
+  d["mqtt"] = mqttOn;
+  d["ble"] = bleOn;
+  JsonArray arr = d["scenes"].to<JsonArray>();
+  for (int i = 0; i < SCENE_COUNT; i++) {
+    JsonObject o = arr.add<JsonObject>();
+    o["id"] = SCENES[i].id;
+    o["name"] = SCENES[i].name;
+    o["args"] = serialized(SCENES[i].argsJson);
+  }
+}
+
+void apiList() {
+  JsonDocument d;
+  buildList(d);
+  sendJson(200, d);
+}
+
+void apiStatus() {
+  JsonDocument d;
+  d["fw"] = FW_VERSION;
+  d["scene"] = SCENES[curScene].id;
+  d["heap"] = ESP.getFreeHeap();
+  d["uptime"] = millis() / 1000;
+  d["rssi"] = apMode ? 0 : WiFi.RSSI();
+  d["ssid"] = apMode ? AP_SSID : WiFi.SSID();
+  d["tz"] = tzSec;
+  sendJson(200, d);
+}
+
+uint32_t rebootAt = 0;
+
+String genToken() { char b[17]; snprintf(b, sizeof b, "%08x%08x", (unsigned)esp_random(), (unsigned)esp_random()); return String(b); }
+
+// Runs one command. Used by HTTP, MQTT and BLE. Never sends a response itself.
+void runCmd(JsonDocument& d, JsonDocument& r) {
+  const char* cmd = d["cmd"] | "";
+  r["ok"] = true;
+  if (!strcmp(cmd, "scene")) {
+    int i = findScene(d["id"] | "");
+    if (i < 0) { r["ok"] = false; r["error"] = "unknown scene"; }
+    else { infoUntil = 0; msgUntil = 0; switchScene(i, d["args"]); }
+  } else if (!strcmp(cmd, "msg") || !strcmp(cmd, "notify")) {
+    bool n = cmd[0] == 'n';
+    msgApp = n ? String(d["app"] | "") : String("");
+    msgTitle = n ? String(d["title"] | "") : String("");
+    msgText = String(d["text"] | "");
+    int ttl = d["ttl"] | (n ? 6 : 10);
+    if (strcmp(SCENES[curScene].id, "message")) prevScene = curScene;
+    infoUntil = 0;
+    switchScene(findScene("message"), JsonVariantConst(), false);
+    msgUntil = ttl > 0 ? millis() + ttl * 1000UL : 0;
+  } else if (!strcmp(cmd, "next")) {
+    switchScene(nextScene(curScene), JsonVariantConst());
+  } else if (!strcmp(cmd, "auto")) {
+    autoMs = (uint32_t)(d["sec"] | 0) * 1000UL;
+  } else if (!strcmp(cmd, "tz")) {
+    tzSec = d["sec"] | 19800L;
+    prefs.putLong("tz", tzSec);
+    configTime(tzSec, 0, "pool.ntp.org", "time.google.com");
+  } else if (!strcmp(cmd, "forget")) {
+    prefs.remove("ssid"); prefs.remove("pass");
+    rebootAt = millis() + 500;
+  } else if (!strcmp(cmd, "reboot")) {
+    rebootAt = millis() + 500;
+  } else if (!strcmp(cmd, "lock")) {            // {"on":true} -> returns the token once
+    lockOn = d["on"] | true;
+    prefs.putBool("lock", lockOn);
+    if (lockOn) r["token"] = hubToken;
+  } else if (!strcmp(cmd, "token")) {           // make a new token (old one stops working)
+    hubToken = genToken();
+    prefs.putString("token", hubToken);
+    r["token"] = hubToken;
+  } else if (!strcmp(cmd, "mqtt")) {            // {"on":true,"host":"..","port":1883,"user":"","pass":"","tls":false}
+    prefs.putBool("mq_on", d["on"] | false);
+    if (d["host"].is<const char*>()) prefs.putString("mq_host", d["host"].as<String>());
+    if (d["port"].is<int>()) prefs.putUShort("mq_port", d["port"]);
+    if (d["user"].is<const char*>()) prefs.putString("mq_user", d["user"].as<String>());
+    if (d["pass"].is<const char*>()) prefs.putString("mq_pass", d["pass"].as<String>());
+    if (d["tls"].is<bool>()) prefs.putBool("mq_tls", d["tls"]);
+    mqttApply();
+    r["mqtt"] = mqttOn;
+  } else if (!strcmp(cmd, "ble")) {             // {"on":true}: saved, then the board reboots to apply it
+    // BLE needs ~70 KB of RAM that the board frees at boot when BLE is not wanted, so it is a boot-time choice.
+    prefs.putBool("ble", d["on"] | true);
+    r["reboot"] = true;
+    rebootAt = millis() + 500;
+  } else if (!strcmp(cmd, "pair")) {
+    gotoScene("pair");
+  } else if (extraCmd(cmd, d, r)) {
+    // handled by scenes2.h
+  } else { r["ok"] = false; r["error"] = "unknown cmd"; }
+}
+
+// Token check for network calls. Setup mode (hotspot) is always open so you can recover a locked board.
+bool authed() {
+  if (!lockOn || apMode) return true;
+  String t = server.header("X-Hub-Token");
+  if (!t.length()) t = server.arg("t");
+  return t == hubToken;
+}
+void deny() { server.send(401, "application/json", "{\"ok\":false,\"error\":\"locked: token required\"}"); }
+
+void apiCmd() {
+  if (!authed()) { deny(); return; }
+  JsonDocument d;
+  if (deserializeJson(d, server.arg("plain"))) { server.send(400, "text/plain", "bad json"); return; }
+  JsonDocument r;
+  runCmd(d, r);
+  sendJson(200, r);
+}
+
+void apiWifi() {
+  if (!authed()) { deny(); return; }
+  String ssid, pass;
+  if (server.hasArg("ssid")) { ssid = server.arg("ssid"); pass = server.arg("pass"); }
+  else {
+    JsonDocument d;
+    if (deserializeJson(d, server.arg("plain"))) { server.send(400, "text/plain", "bad json"); return; }
+    ssid = String(d["ssid"] | ""); pass = String(d["pass"] | "");
+  }
+  if (!ssid.length()) { server.send(400, "text/plain", "ssid required"); return; }
+  prefs.putString("ssid", ssid);
+  prefs.putString("pass", pass);
+  server.send(200, "text/html", "<h3>Saved. Rebooting and joining the network...</h3>");
+  rebootAt = millis() + 600;
+}
+
+void apiScan() {
+  int n = WiFi.scanComplete();
+  JsonDocument d;
+  JsonArray arr = d.to<JsonArray>();
+  if (n == WIFI_SCAN_FAILED) WiFi.scanNetworks(true);      // not started yet
+  else if (n > 0) {
+    for (int i = 0; i < n; i++) { String s = WiFi.SSID(i); if (s.length()) arr.add(s); }
+  }
+  String out; serializeJson(d, out);
+  server.send(200, "application/json", out);
+}
+
+#include "remote.h"
+
+void startAP() {
+  apMode = true;
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP(AP_SSID, AP_PASS);
+  WiFi.scanNetworks(true);   // async, used for the setup page list
+}
+
+void setup() {
+  Serial.begin(115200);
+  SPI.begin(TFT_SCK, -1, TFT_MOSI, -1);   // CS is driven by the display library, not the SPI peripheral
+  tft.initR(TAB);
+  tft.setRotation(1);
+  tft.fillScreen(0);
+  prefs.begin("hub", false);
+  tzSec = prefs.getLong("tz", 19800);
+  uint8_t mac[6]; esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  char idb[8]; snprintf(idb, sizeof idb, "%02X%02X%02X", mac[3], mac[4], mac[5]);
+  deviceId = idb;
+  hubToken = prefs.getString("token", "");
+  if (hubToken.length() < 8) { hubToken = genToken(); prefs.putString("token", hubToken); }
+  lockOn = prefs.getBool("lock", false);
+  String ssid = prefs.getString("ssid", ""), pass = prefs.getString("pass", "");
+  // Keep Bluetooth only for first-time setup (no Wi-Fi saved) or when the user enabled it; otherwise give its RAM back.
+  bleAvailable = prefs.getBool("ble", false) || !ssid.length();
+  if (!bleAvailable) esp_bt_controller_mem_release(ESP_BT_MODE_BTDM);
+
+  tft.setTextColor(ST77XX_WHITE); tft.setTextSize(2); tft.setCursor(10, 50);
+  tft.print(ssid.length() ? "Wi-Fi..." : "Setup mode");
+  if (ssid.length()) {
+    WiFi.mode(WIFI_STA);
+    WiFi.setAutoReconnect(true);
+    WiFi.begin(ssid.c_str(), pass.c_str());
+    uint32_t t0 = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - t0 < 15000) delay(250);
+  }
+  if (WiFi.status() != WL_CONNECTED) startAP();
+  else {
+    configTime(tzSec, 0, "pool.ntp.org", "time.google.com");
+    MDNS.begin("esp32-hub");
+    ArduinoOTA.setHostname("esp32-hub");
+    ArduinoOTA.setPassword(AP_PASS);
+    ArduinoOTA.onStart([] { tft.fillScreen(0); tft.setTextSize(2); tft.setTextColor(ST77XX_WHITE); tft.setCursor(14, 40); tft.print("Updating..."); });
+    ArduinoOTA.onProgress([](unsigned int p, unsigned int t) { tft.fillRect(10, 80, (W - 20) * p / t, 10, ST77XX_GREEN); });
+    ArduinoOTA.begin();
+  }
+
+  server.on("/", HTTP_GET, [] { server.send_P(200, "text/html", PAGE_HTML); });
+  server.on("/api/scan", HTTP_GET, apiScan);
+  // Any unknown URL (phones probing for a captive portal, typos...) goes to the setup page
+  server.onNotFound([] {
+    server.sendHeader("Location", String("http://") + (apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString()) + "/");
+    server.send(302, "text/plain", "");
+  });
+  server.on("/wifi", HTTP_POST, apiWifi);
+  server.on("/api/wifi", HTTP_POST, apiWifi);
+  server.on("/api/list", HTTP_GET, apiList);
+  server.on("/api/status", HTTP_GET, apiStatus);
+  server.on("/api/cmd", HTTP_POST, apiCmd);
+  server.on("/update", HTTP_POST, [] {
+    if (!authed()) { deny(); return; }
+    server.sendHeader("Connection", "close");
+    server.send(200, "text/plain", Update.hasError() ? "Update FAILED" : "Update OK, rebooting...");
+    rebootAt = millis() + 600;
+  }, [] {
+    static bool ok = false;
+    HTTPUpload& up = server.upload();
+    if (up.status == UPLOAD_FILE_START) { ok = authed(); if (ok) Update.begin(UPDATE_SIZE_UNKNOWN); }
+    else if (ok && up.status == UPLOAD_FILE_WRITE) Update.write(up.buf, up.currentSize);
+    else if (ok && up.status == UPLOAD_FILE_END) Update.end(true);
+  });
+  const char* hdrs[] = {"X-Hub-Token"};
+  server.collectHeaders(hdrs, 1);
+  server.begin();
+  mqttApply();                                   // starts MQTT if it was enabled before
+  if (bleAvailable) bleStart();                  // BLE Wi-Fi setup is on in first-time setup mode
+  Serial.printf("\n[hub] fw %s  id=%s  mode=%s  ip=%s  lock=%d  mqtt=%d  ble=%d  heap=%u\n", FW_VERSION, deviceId.c_str(),
+                apMode ? "AP(setup)" : "STA", apMode ? WiFi.softAPIP().toString().c_str() : WiFi.localIP().toString().c_str(),
+                lockOn, mqttOn, bleOn, ESP.getFreeHeap());
+  if (apMode) Serial.println("[hub] join Wi-Fi '" AP_SSID "' (password " AP_PASS ") then open http://192.168.4.1");
+
+  pendingScene = findScene(prefs.getString("scene", "eyes").c_str());
+  if (pendingScene < 0) pendingScene = 0;
+  switchScene(findScene("info"), JsonVariantConst(), false);
+  if (!apMode) infoUntil = millis() + 6000;   // show IP for 6 s, then the saved scene
+}
+
+void loop() {
+  server.handleClient();
+  static uint32_t lastLog = 0;
+  if (millis() - lastLog > 15000) { lastLog = millis(); Serial.printf("[hub] scene=%s heap=%u mqtt=%s\n", SCENES[curScene].id, ESP.getFreeHeap(), mqttOn ? (mqtt.connected() ? "up" : "down") : "off"); }
+  if (!apMode) ArduinoOTA.handle();
+  mqttLoop();
+  bleLoop();
+  uint32_t now = millis();
+  if (rebootAt && now > rebootAt) ESP.restart();
+  if (infoUntil && now > infoUntil) { infoUntil = 0; switchScene(pendingScene, JsonVariantConst()); }
+  if (msgUntil && now > msgUntil) { msgUntil = 0; switchScene(prevScene, JsonVariantConst(), false); }
+  if (autoMs && !infoUntil && !msgUntil && now - lastRotate > autoMs)
+    switchScene(nextScene(curScene), JsonVariantConst());
+  if (now - lastFrame >= SCENES[curScene].frameMs) {
+    lastFrame = now;
+    SCENES[curScene].frame();
+    tft.drawRGBBitmap(0, 0, cv.getBuffer(), W, H);
+  } else delay(1);
+}
