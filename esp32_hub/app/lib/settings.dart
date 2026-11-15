@@ -1,16 +1,13 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
-import 'discovery.dart';
 import 'phone.dart';
 import 'theme.dart';
 
@@ -315,25 +312,6 @@ class _SettingsPageState extends State<SettingsPage> {
     await _refresh();
   }
 
-  Future<void> _ble(bool on) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(on ? 'Enable Bluetooth setup?' : 'Disable Bluetooth?'),
-        content: const Text('The board will reboot. While Bluetooth is on the board has about 70 KB less free memory, '
-            'so photo animations and weather may not work. It is meant for first-time Wi-Fi setup only.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Restart')),
-        ],
-      ),
-    );
-    if (ok == true) {
-      await _run({'cmd': 'ble', 'on': on});
-      _toast('Rebooting...');
-    }
-  }
-
   Widget _section(String title, List<Widget> children) => Padding(
         padding: const EdgeInsets.only(bottom: 8),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -409,14 +387,6 @@ class _SettingsPageState extends State<SettingsPage> {
           const SizedBox(height: 12),
           Hint('To connect remotely use Connect > Internet (MQTT) with device ID "$id" and the token above. A public broker is visible to others: use your own broker with a username, password and TLS for anything but testing.'),
         ]),
-        _section('Bluetooth', [
-          Hint('Bluetooth setup on the board is ${_d['ble'] == true ? 'on' : 'off'}. It lets the app give a board its Wi-Fi without a browser. It is on automatically while the board has no working Wi-Fi.'),
-          const SizedBox(height: 10),
-          Wrap(spacing: 8, runSpacing: 8, children: [
-            OutlinedButton(onPressed: () => _ble(true), child: const Text('Enable (restarts)')),
-            OutlinedButton(onPressed: () => _ble(false), child: const Text('Disable (restarts)')),
-          ]),
-        ]),
         const SectionTitle('Phone'),
         Group(children: [
           Row2(
@@ -427,226 +397,6 @@ class _SettingsPageState extends State<SettingsPage> {
             onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => PermissionsPage(api: widget.api))),
           ),
         ]),
-      ]),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------------- BLE SETUP
-/// Gives a new board its Wi-Fi over Bluetooth (no hotspot or browser needed).
-class BleSetupPage extends StatefulWidget {
-  const BleSetupPage({super.key});
-  @override
-  State<BleSetupPage> createState() => _BleSetupPageState();
-}
-
-class _BleSetupPageState extends State<BleSetupPage> with WidgetsBindingObserver {
-  static final _svc = Uuid.parse('6e400001-b5a3-f393-e0a9-e50e24dcca9e');
-  static final _cmdChr = Uuid.parse('6e400002-b5a3-f393-e0a9-e50e24dcca9e');
-  static final _infoChr = Uuid.parse('6e400003-b5a3-f393-e0a9-e50e24dcca9e');
-
-  final _ble = FlutterReactiveBle();
-  final Map<String, DiscoveredDevice> _found = {};
-  StreamSubscription<DiscoveredDevice>? _scanSub;
-  StreamSubscription<ConnectionStateUpdate>? _connSub;
-  StreamSubscription<BleStatus>? _statusSub;
-  BleStatus _status = BleStatus.unknown;
-  bool _scanning = false, _connected = false, _busy = false, _showPass = false;
-  String? _deviceId, _msg;
-  Map<String, dynamic>? _info;
-  final _ssid = TextEditingController(), _pass = TextEditingController(), _token = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    // follows Bluetooth being switched on or off while this page is open
-    _statusSub = _ble.statusStream.listen((s) { if (mounted) setState(() => _status = s); });
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _statusSub?.cancel();
-    _scanSub?.cancel();
-    _connSub?.cancel();
-    _ssid.dispose();
-    _pass.dispose();
-    _token.dispose();
-    super.dispose();
-  }
-
-  QualifiedCharacteristic _q(Uuid chr) => QualifiedCharacteristic(serviceId: _svc, characteristicId: chr, deviceId: _deviceId!);
-
-  Future<bool> _permissions() async {
-    final res = await [Permission.bluetoothScan, Permission.bluetoothConnect, Permission.locationWhenInUse].request();
-    final scanOk = res[Permission.bluetoothScan]?.isGranted ?? false;
-    final connOk = res[Permission.bluetoothConnect]?.isGranted ?? false;
-    final locOk = res[Permission.locationWhenInUse]?.isGranted ?? false;
-    // Android 12+ needs scan + connect; Android 11 and older need location instead
-    return (scanOk && connOk) || locOk;
-  }
-
-  /// Plain-language problem for the current Bluetooth state, or null when scanning can start.
-  String? get _blocker {
-    switch (_status) {
-      case BleStatus.poweredOff:
-        return 'Bluetooth is turned off on your phone.';
-      case BleStatus.unauthorized:
-        return 'This app is not allowed to use Bluetooth. Allow "Nearby devices" in the app settings.';
-      case BleStatus.locationServicesDisabled:
-        return 'Android needs Location switched on to find Bluetooth devices.';
-      case BleStatus.unsupported:
-        return 'This phone does not support Bluetooth Low Energy.';
-      default:
-        return null;
-    }
-  }
-
-  Future<void> _scan() async {
-    if (!await _permissions()) {
-      setState(() => _msg = 'Bluetooth permission was denied. Allow "Nearby devices" for this app in Android settings.');
-      return;
-    }
-    if (_blocker != null) { setState(() => _msg = null); return; }
-    await _scanSub?.cancel();
-    setState(() { _found.clear(); _msg = null; _scanning = true; });
-    _scanSub = _ble.scanForDevices(withServices: [_svc], scanMode: ScanMode.lowLatency, requireLocationServicesEnabled: false).listen(
-      (d) { if (mounted) setState(() => _found[d.id] = d); },
-      onError: (e) {
-        final off = '$e'.toLowerCase().contains('disabled') || '$e'.toLowerCase().contains('powered');
-        if (mounted) setState(() { _msg = off ? 'Bluetooth is turned off. Turn it on, then scan again.' : 'The scan did not work. Try again.'; _scanning = false; });
-      },
-    );
-    Future.delayed(const Duration(seconds: 10), () async {
-      await _scanSub?.cancel();
-      if (mounted && _scanning) setState(() { _scanning = false; if (_found.isEmpty) _msg = 'No board found. Its screen should say SETUP or NO WI-FI, and it has to be within a few metres of the phone.'; });
-    });
-  }
-
-  Future<void> _connect(DiscoveredDevice d) async {
-    await _scanSub?.cancel();
-    setState(() { _busy = true; _msg = 'Connecting to ${d.name}…'; _scanning = false; });
-    _connSub?.cancel();
-    _connSub = _ble.connectToDevice(id: d.id, connectionTimeout: const Duration(seconds: 15)).listen((u) async {
-      if (u.connectionState == DeviceConnectionState.connected) {
-        _deviceId = d.id;
-        try {
-          await _ble.requestMtu(deviceId: d.id, mtu: 247);
-        } catch (_) {}
-        await _readInfo();
-        if (mounted) setState(() { _connected = true; _busy = false; _msg = null; });
-      } else if (u.connectionState == DeviceConnectionState.disconnected && mounted) {
-        setState(() { _connected = false; _busy = false; });
-      }
-    }, onError: (e) { if (mounted) setState(() { _busy = false; _msg = 'Could not connect. Move closer to the board and try again.'; }); });
-  }
-
-  Future<Map<String, dynamic>?> _readInfo() async {
-    try {
-      final raw = await _ble.readCharacteristic(_q(_infoChr));
-      final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
-      if (mounted) setState(() => _info = m);
-      return m;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<void> _provision() async {
-    final ssid = _ssid.text.trim();
-    if (ssid.isEmpty) { setState(() => _msg = 'Enter the Wi-Fi name'); return; }
-    FocusScope.of(context).unfocus();
-    setState(() { _busy = true; _msg = 'Sending…'; });
-    final payload = {'ssid': ssid, 'pass': _pass.text, if (_token.text.trim().isNotEmpty) 't': _token.text.trim()};
-    try {
-      await _ble.writeCharacteristicWithResponse(_q(_cmdChr), value: utf8.encode(jsonEncode(payload)));
-      await Future.delayed(const Duration(milliseconds: 800));
-      final info = await _readInfo();      // may fail if the board already rebooted: that is fine
-      final last = info?['last'];
-      if (last is Map && last['ok'] == false) {
-        setState(() { _busy = false; _msg = 'The board said: ${last['error']}'; });
-      } else {
-        setState(() { _msg = 'Saved. The board is restarting and joining "$ssid"…'; });
-        final f = await Discovery.waitFor('${_info?['id'] ?? ''}', limit: const Duration(seconds: 75));
-        if (!mounted) return;
-        if (f != null) {
-          Navigator.pop(context, f);
-          return;
-        }
-        setState(() { _busy = false; _msg = 'The board should be joining "$ssid" but I can\'t see it yet. Check the password, make sure your phone is on your home Wi-Fi, then go back and tap Search again.'; });
-      }
-    } catch (e) {
-      setState(() { _busy = false; _msg = 'Could not send it to the board. Stay close to it and try again.'; });
-    }
-  }
-
-  Widget _blockerCard(String text) => Panel(
-        color: HubColors.warn.withValues(alpha: 0.08),
-        borderColor: HubColors.warn.withValues(alpha: 0.35),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(text, style: const TextStyle(height: 1.4)),
-          const SizedBox(height: 12),
-          Row(children: [
-            if (_status == BleStatus.unauthorized)
-              FilledButton(onPressed: openAppSettings, child: const Text('App settings'))
-            else
-              FilledButton(onPressed: _status == BleStatus.poweredOff ? PhoneBridge.openBluetoothSettings : openAppSettings, child: Text(_status == BleStatus.poweredOff ? 'Open Bluetooth settings' : 'Open settings')),
-          ]),
-        ]),
-      );
-
-  @override
-  Widget build(BuildContext context) {
-    final blocker = _blocker;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Wi-Fi with Bluetooth')),
-      body: ListView(padding: const EdgeInsets.fromLTRB(20, 4, 20, 32), children: [
-        if (!_connected) ...[
-          const Hint('Power the board. When it has no working Wi-Fi its screen shows SETUP or NO WI-FI and Bluetooth is on. Then tap Scan.'),
-          const SizedBox(height: 18),
-          if (blocker != null) ...[_blockerCard(blocker), const SizedBox(height: 14)],
-          FilledButton.icon(
-            onPressed: (_scanning || _busy || blocker != null) ? null : _scan,
-            icon: _scanning ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.bluetooth_searching_rounded),
-            label: Text(_scanning ? 'Scanning…' : 'Scan for boards'),
-          ),
-          if (_found.isNotEmpty) ...[
-            const SizedBox(height: 18),
-            Group(children: [
-              for (final d in _found.values)
-                Row2(
-                  icon: Icons.memory_rounded,
-                  title: d.name.isEmpty ? d.id : d.name,
-                  sub: 'Signal ${d.rssi} dBm',
-                  trailing: const Icon(Icons.chevron_right_rounded, color: HubColors.muted),
-                  onTap: _busy ? null : () => _connect(d),
-                ),
-            ]),
-          ],
-        ] else ...[
-          Group(children: [Row2(icon: Icons.bluetooth_connected_rounded, iconColor: HubColors.ok, title: 'Connected to ${_info?['id'] ?? 'the board'}', sub: 'Firmware ${_info?['fw']}')]),
-          const SizedBox(height: 16),
-          TextField(controller: _ssid, decoration: const InputDecoration(labelText: 'Wi-Fi name (2.4 GHz)'), autocorrect: false),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _pass,
-            obscureText: !_showPass,
-            autocorrect: false,
-            enableSuggestions: false,
-            decoration: InputDecoration(
-              labelText: 'Wi-Fi password',
-              suffixIcon: IconButton(icon: Icon(_showPass ? Icons.visibility_off_rounded : Icons.visibility_rounded, color: HubColors.muted), onPressed: () => setState(() => _showPass = !_showPass)),
-            ),
-          ),
-          if (_info?['lock'] == true) ...[
-            const SizedBox(height: 12),
-            TextField(controller: _token, decoration: const InputDecoration(labelText: 'Device token (board is locked)')),
-          ],
-          const SizedBox(height: 18),
-          FilledButton(onPressed: _busy ? null : _provision, child: Text(_busy ? 'Working…' : 'Send Wi-Fi to the board')),
-        ],
-        if (_msg != null) Padding(padding: const EdgeInsets.only(top: 16), child: Hint(_msg!)),
       ]),
     );
   }

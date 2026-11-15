@@ -235,7 +235,7 @@ class MqttApi extends Api {
   }
 
   @override
-  Future<void> wifi(String ssid, String pass) async => throw UnsupportedError('Wi-Fi setup needs a direct connection or Bluetooth');
+  Future<void> wifi(String ssid, String pass) async => throw UnsupportedError('Wi-Fi setup needs a direct connection to the board');
 
   @override
   Future<void> close() async {

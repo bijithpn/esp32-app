@@ -330,7 +330,7 @@ BLE advertising seen from a computer; memory stays flat during the tests; no reb
   (`connecting | ok | fail`, reason `bad_password | not_found | timeout`). The network is only saved once the join works, so a typo
   never overwrites a working saved Wi-Fi. The board restarts into normal mode 8 s after success.
 - `GET /api/scan` restarts its scan by itself (an empty result no longer sticks) and returns names strongest first.
-- Bluetooth setup stays available whenever the board could not join its saved Wi-Fi at boot.
+- Bluetooth setup was removed from the app; the board keeps Bluetooth off by default, which frees about 60 KB of RAM.
 - The Android app pins itself to a Wi-Fi without internet (the board's hotspot) so Android does not send traffic over mobile data.
 - Notification access on Android 13+ for sideloaded apps: App info > ⋮ > Allow restricted settings.
 

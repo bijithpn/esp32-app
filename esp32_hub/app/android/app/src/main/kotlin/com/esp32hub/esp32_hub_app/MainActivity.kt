@@ -28,8 +28,11 @@ class MainActivity : FlutterActivity() {
                     // Pin this app to a Wi-Fi that has no internet (the board's hotspot), otherwise Android sends our traffic over mobile data.
                     "bindWifi" -> result.success(bindWifiWithoutInternet())
                     "joinWifi" -> joinWifi(call.argument<String>("ssid") ?: "", call.argument<String>("pass") ?: "", result)
-                    "openBluetooth" -> {
-                        startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    "leaveHotspot" -> {
+                        val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+                        joinCallback?.let { runCatching { cm.unregisterNetworkCallback(it) } }
+                        joinCallback = null
+                        cm.bindProcessToNetwork(null)
                         result.success(null)
                     }
                     "openSettings" -> {

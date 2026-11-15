@@ -30,7 +30,8 @@ class _ManualConnectPageState extends State<ManualConnectPage> {
 
   Future<void> _load() async {
     final p = await SharedPreferences.getInstance();
-    _host.text = p.getString('host') ?? '';
+    final saved = p.getString('host') ?? '';
+    _host.text = saved.isEmpty ? '192.168.4.1' : saved; // 192.168.4.1 is the board's address when you are on its ESP32-Hub hotspot
     _token.text = p.getString('token') ?? '';
     _mHost.text = p.getString('mq_host') ?? '';
     _mPort.text = p.getString('mq_port') ?? '1883';
@@ -188,7 +189,7 @@ class _ManualConnectPageState extends State<ManualConnectPage> {
                   ),
                   const SizedBox(height: 20),
                   if (!_remote) ...[
-                    _field(_host, 'Board IP address (shown on its screen)', type: TextInputType.url),
+                    _field(_host, 'Board IP address', type: TextInputType.url),
                     _field(_token, 'Token (only if the board is locked)'),
                     const SizedBox(height: 4),
                     FilledButton(
@@ -202,12 +203,6 @@ class _ManualConnectPageState extends State<ManualConnectPage> {
                         title: 'Scan pairing QR',
                         trailing: const Icon(Icons.chevron_right_rounded, color: HubColors.muted),
                         onTap: _busy ? null : () { FocusScope.of(context).unfocus(); _scan(); },
-                      ),
-                      Row2(
-                        icon: Icons.bluetooth_rounded,
-                        title: 'New board? Set up Wi-Fi with Bluetooth',
-                        trailing: const Icon(Icons.chevron_right_rounded, color: HubColors.muted),
-                        onTap: _busy ? null : () { FocusScope.of(context).unfocus(); Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BleSetupPage())); },
                       ),
                     ]),
                   ] else ...[
@@ -237,9 +232,8 @@ class _ManualConnectPageState extends State<ManualConnectPage> {
                           'The device ID and token are in Settings and on the board\'s Pair (QR) screen.'
                       : 'First time?\n'
                           '1. Power the board. If it has no Wi-Fi it shows SETUP.\n'
-                          '2. Easiest: tap "Set up Wi-Fi with Bluetooth" above. '
-                          'Or join the hotspot ESP32-Hub (password hub12345) on your phone, then open this app: it finds the board and asks for your Wi-Fi.\n'
-                          '3. The board then shows its IP address.'),
+                          '2. Join the hotspot ESP32-Hub (password hub12345) on your phone and tap Connect: 192.168.4.1 is the board\'s address there. The app then asks for your home Wi-Fi.\n'
+                          '3. Afterwards the board shows its new IP address on its screen.'),
                 ]),
               ),
             ),

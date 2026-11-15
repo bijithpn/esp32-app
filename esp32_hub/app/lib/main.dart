@@ -114,8 +114,10 @@ class _StartPageState extends State<StartPage> {
       if (!mounted) return true;
       setState(() => _status = 'Found a new board. Let\'s get it online.');
       final api = HttpApi(f.host);
-      await Navigator.of(context).push(MaterialPageRoute(builder: (_) => WifiSetupPage(api: api, boardId: f.id)));
+      final found = await Navigator.of(context).push<FoundBoard>(MaterialPageRoute(builder: (_) => WifiSetupPage(api: api, boardId: f.id)));
       _skipAp = true;
+      // The setup page already found the board on the home Wi-Fi: connect straight to it instead of searching again.
+      if (found != null && mounted && !found.ap && await _connectTo(found, p)) return true;
       if (mounted) _auto();
       return true;
     }
@@ -195,16 +197,6 @@ class _StartPageState extends State<StartPage> {
     _auto();
   }
 
-  Future<void> _bleSetup() async {
-    final f = await Navigator.of(context).push<FoundBoard>(MaterialPageRoute(builder: (_) => const BleSetupPage()));
-    if (f != null && mounted) {
-      final p = await SharedPreferences.getInstance();
-      await _connectTo(f, p);
-    } else if (mounted) {
-      _auto();
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final searching = _phase == _Phase.searching;
@@ -232,7 +224,6 @@ class _StartPageState extends State<StartPage> {
                   FilledButton.icon(onPressed: _auto, icon: const Icon(Icons.refresh_rounded), label: const Text('Search again')),
                   const SizedBox(height: 20),
                   Group(children: [
-                    Row2(icon: Icons.bluetooth_rounded, title: 'Set up Wi-Fi with Bluetooth', sub: 'For a new board, or one that lost its Wi-Fi', trailing: const Icon(Icons.chevron_right_rounded, color: HubColors.muted), onTap: _bleSetup),
                     Row2(icon: Icons.qr_code_scanner_rounded, title: 'Scan the board\'s QR code', sub: 'From its "Pair (QR)" screen', trailing: const Icon(Icons.chevron_right_rounded, color: HubColors.muted), onTap: _scanQr),
                     Row2(
                       icon: Icons.tune_rounded,
@@ -248,7 +239,7 @@ class _StartPageState extends State<StartPage> {
                   const SizedBox(height: 28),
                   const Text('Not sure what to do?', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
                   const SizedBox(height: 10),
-                  const _Step('1', 'Plug in the board. You should see a face, or a screen saying NO WI-FI / SETUP.'),
+                  const _Step('1', 'Plug in the board. You should see a face, or a SETUP screen on a new board.'),
                   const SizedBox(height: 8),
                   const _Step('2', 'On the SETUP screen, scan its QR code with the camera to join the hotspot "ESP32-Hub", then open this app again.'),
                   const SizedBox(height: 8),
@@ -347,6 +338,7 @@ class _WifiSetupPageState extends State<WifiSetupPage> {
     _scanRun++; // stop scanning while the board is busy joining
     setState(() { _join = _Join.joining; _scanning = false; });
     _say('Sending to the board…');
+    String? newIp;
     Map<String, dynamic> r;
     try {
       r = await widget.api.wifiSet(ssid, _pass.text);
@@ -371,14 +363,17 @@ class _WifiSetupPageState extends State<WifiSetupPage> {
         return;
       }
       if (res.kind == 'ok') {
-        _say('Joined "$ssid" (${res.ip}). Reconnecting your phone to it…');
+        _say('Joined "$ssid" (${res.ip}). Switching your phone back to your Wi-Fi…');
       }
       if (res.found != null) { Navigator.pop(context, res.found); return; }
+      newIp = res.ip;
     } else {
       _say('The board is restarting and joining "$ssid". This takes about 20 seconds…');
     }
 
-    final f = await Discovery.waitFor(widget.boardId, limit: const Duration(seconds: 70));
+    // The board leaves its hotspot now. Let go of it, so the phone goes back to the home Wi-Fi where the board will be.
+    await PhoneBridge.leaveHotspot();
+    final f = await Discovery.waitFor(widget.boardId, limit: const Duration(seconds: 70), lastHost: newIp);
     if (!mounted) return;
     if (f != null) {
       Navigator.pop(context, f);
@@ -756,7 +751,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _wifiSetup() async {
     final a = _api;
-    if (a is! HttpApi) { _toast('Wi-Fi can only be changed from the same network, or with Bluetooth.'); return; }
+    if (a is! HttpApi) { _toast('Connect to the board first (same Wi-Fi, or its ESP32-Hub hotspot), then change its Wi-Fi.'); return; }
     final f = await Navigator.of(context).push<FoundBoard>(MaterialPageRoute(builder: (_) => WifiSetupPage(api: a, boardId: _id)));
     if (f != null && mounted) await _switchTo(f);
     _refresh();

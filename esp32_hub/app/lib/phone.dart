@@ -41,9 +41,10 @@ class PhoneBridge {
     }
   }
 
-  static Future<void> openBluetoothSettings() async {
+  /// Lets go of the board's hotspot (joined from its QR code) so the phone returns to its normal Wi-Fi.
+  static Future<void> leaveHotspot() async {
     try {
-      await _ch.invokeMethod('openBluetooth');
+      await _ch.invokeMethod('leaveHotspot');
     } catch (_) {}
   }
 

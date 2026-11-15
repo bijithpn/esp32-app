@@ -23,7 +23,7 @@
 #include "esp_bt.h"
 #include "qrcode_lib.h"   // vendored copy of the MIT-licensed "QRCode" library (ESP-IDF ships a different qrcode.h)
 
-#define FW_VERSION "0.4.2"
+#define FW_VERSION "0.4.3"
 #define TFT_CS 15
 #define TFT_DC 2
 #define TFT_RST 4
@@ -419,8 +419,8 @@ void setup() {
     ssid = ""; pass = "";
     Serial.println("[wifi] removed the saved network 'ESP32-Hub' (that is the board's own hotspot)");
   }
-  // Keep Bluetooth only for first-time setup (no Wi-Fi saved) or when the user enabled it; otherwise give its RAM back.
-  bleAvailable = prefs.getBool("ble", false) || !ssid.length();
+  // Bluetooth is off unless it was switched on (the app no longer uses it): its ~70 KB of RAM goes back to the system.
+  bleAvailable = prefs.getBool("ble", false);
 
   savedSsid = ssid; savedPass = pass;
   if (ssid.length()) {
@@ -436,9 +436,6 @@ void setup() {
     }
     Serial.printf("[wifi] saved network '%s' (%u chars password): %s\n", ssid.c_str(), (unsigned)pass.length(), WiFi.status() == WL_CONNECTED ? "joined" : "NOT joined");
   } else { Serial.println("[wifi] no saved network"); bootScreen("Setup mode", "starting hotspot", 50); }
-  // Bluetooth stays available when it was asked for, when there is no Wi-Fi saved, or when the saved Wi-Fi could not be joined
-  // (so the app can always fix the Wi-Fi). Otherwise its RAM goes back to the system.
-  if (WiFi.status() != WL_CONNECTED) bleAvailable = true;
   if (!bleAvailable) esp_bt_controller_mem_release(ESP_BT_MODE_BTDM);
   if (WiFi.status() != WL_CONNECTED) startAP();   // keeps trying the saved Wi-Fi in the background (see wifiKeepAlive)
   else {
