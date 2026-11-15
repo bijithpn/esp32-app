@@ -136,6 +136,22 @@ void info_frame() {
   uint32_t now = millis(); infoFrame++;
   cv.fillScreen(FACE_BG);
   cv.setTextWrap(false);
+  if (apMode && lastClientMs != 0 && (now - lastClientMs) < 12000) {
+    // ---- the app is connected to the hotspot: say so right away (the QR is no longer needed) ----
+    faceSet(M_HAPPY); faceStep();
+    faceDraw(32, 40, 0.34f, ((infoFrame % 40) < 2) ? 0.1f : 1.0f, -1, sinf(now * 0.002f) * 4, 0);
+    cv.setTextSize(2); cv.setTextColor(rgb(255, 255, 255)); cv.setCursor(66, 22); cv.print("Linked!");
+    cv.setTextSize(1); cv.setTextColor(rgb(150, 160, 190));
+    cv.setCursor(66, 42); cv.print("App connected");
+    cv.setCursor(66, 52); cv.print("to the board");
+    cv.fillRoundRect(6, 68, W - 12, 26, 9, rgb(16, 24, 46));
+    cv.drawRoundRect(6, 68, W - 12, 26, 9, rgb(255, 214, 110));
+    cv.setTextColor(rgb(255, 214, 110)); cv.setCursor(14, 73); cv.print("Next: add your");
+    cv.setCursor(14, 83); cv.print("home Wi-Fi in the app");
+    cv.fillCircle(11, H - 11, 3, rgb(80, 230, 140));
+    cv.setTextColor(rgb(80, 230, 140)); cv.setCursor(20, H - 14); cv.print("Connected to the app");
+    return;
+  }
   if (apMode) {
     // ---- first-time setup: scan the QR with the phone camera to join the board's hotspot ----
     const int m = 3, q = 7, box = wifiQr.size * m + 2 * q, ox = 1, oy = (H - box) / 2;   // q = white margin: scanners need it to find the code
