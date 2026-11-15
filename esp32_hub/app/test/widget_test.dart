@@ -6,6 +6,7 @@ import 'package:esp32_hub_app/core/discovery.dart';
 import 'package:esp32_hub_app/core/models.dart';
 import 'package:esp32_hub_app/core/registry.dart';
 import 'package:esp32_hub_app/main.dart';
+import 'package:esp32_hub_app/screens/manual.dart';
 import 'package:esp32_hub_app/screens/pairing.dart';
 import 'package:esp32_hub_app/screens/scene_ui.dart';
 import 'package:esp32_hub_app/theme.dart';
@@ -104,6 +105,55 @@ void main() {
     expect(find.text('Desk Hub'), findsOneWidget);
     expect(find.text('Connected'), findsWidgets);
     expect(find.text('Quick actions'), findsOneWidget);
+    await t.pumpWidget(const SizedBox());
+    hub.dispose();
+  });
+
+  testWidgets('screens opened with Navigator.push can reach the shared state (no blank screen)', (t) async {
+    t.view.physicalSize = const Size(800, 3000);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    SharedPreferences.setMockInitialValues({});
+    final b = FakeBridge();
+    Bridge.current = b;
+    final hub = ConnectionManager(registry: DeviceRegistry(), bridge: b, log: DiagLog(), history: ConnHistory(), discovery: DiscoveryService(bridge: b, log: DiagLog(), sweepDelay: Duration.zero));
+    await t.pumpWidget(HubApp(manager: hub, prefs: AppPrefs()));
+    await t.runAsync(() => Future.delayed(const Duration(milliseconds: 200)));
+    await t.pump(const Duration(milliseconds: 500));
+    await t.tap(find.widgetWithText(FilledButton, 'Add a new Hub'), warnIfMissed: true);
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 600));
+    expect(find.text('Hold the BOOT button for 2 seconds'), findsOneWidget);
+    await t.pageBack();
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 600));
+    await t.tap(find.text('Enter address'));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 600));
+    expect(find.text('Connect manually'), findsOneWidget);
+    await t.pumpWidget(const SizedBox());
+    hub.dispose();
+  });
+
+  testWidgets('manual connect is prefilled with the saved address and token', (t) async {
+    t.view.physicalSize = const Size(800, 3000);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    SharedPreferences.setMockInitialValues({});
+    final b = FakeBridge();
+    Bridge.current = b;
+    final hub = ConnectionManager(registry: DeviceRegistry(), bridge: b, log: DiagLog(), history: ConnHistory(), discovery: DiscoveryService(bridge: b, log: DiagLog(), sweepDelay: Duration.zero));
+    await t.runAsync(() async {
+      await hub.registry.load();
+      await hub.registry.upsert(HubDevice(id: 'C224AC', host: '192.168.1.12'), select: true);
+      await hub.registry.setToken('C224AC', 'abc123token');
+    });
+    await t.pumpWidget(MaterialApp(theme: buildHubTheme(), builder: (c, w) => HubScope(manager: hub, child: w!), home: const ManualConnectScreen()));
+    await t.runAsync(() => Future.delayed(const Duration(milliseconds: 100)));
+    await t.pump(const Duration(milliseconds: 300));
+    final fields = t.widgetList<TextField>(find.byType(TextField)).toList();
+    expect(fields[0].controller!.text, '192.168.1.12');
+    expect(fields[1].controller!.text, 'abc123token');
     await t.pumpWidget(const SizedBox());
     hub.dispose();
   });

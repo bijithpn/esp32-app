@@ -23,6 +23,37 @@ class _ManualConnectScreenState extends State<ManualConnectScreen> {
   String? _error;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _prefill());
+  }
+
+  /// Fills in what the app already knows (the selected or last Hub's address, token and broker), so nothing is typed twice.
+  Future<void> _prefill() async {
+    final hub = HubScope.read(context);
+    final reg = hub.registry;
+    final d = reg.selected ?? (reg.devices.isEmpty ? null : reg.devices.first);
+    if (d == null) return;
+    final token = await reg.token(d.id);
+    final mq = await reg.mqttConfig(d.id);
+    if (!mounted) return;
+    setState(() {
+      if (d.host.isNotEmpty && d.host != 'mqtt') _host.text = d.host;
+      _token.text = token;
+      _mId.text = d.id;
+      _mToken.text = token;
+      if (mq != null) {
+        _mHost.text = mq.host;
+        _mPort.text = '${mq.port}';
+        _mUser.text = mq.user;
+        _mPass.text = mq.pass;
+        _tls = mq.tls;
+        if (d.host == 'mqtt') _remote = true;
+      }
+    });
+  }
+
+  @override
   void dispose() {
     for (final c in [_host, _token, _mHost, _mPort, _mUser, _mPass, _mId, _mToken]) {
       c.dispose();
