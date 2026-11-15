@@ -24,6 +24,7 @@ class HubNotificationService : NotificationListenerService() {
     private var current: MediaController? = null
     private val main = Handler(Looper.getMainLooper())
     private var lastKey = ""
+    private var lastTitle = ""
     private var lastSent = 0L
     private var lastNotifKey = ""
     private var lastNotifAt = 0L
@@ -113,7 +114,19 @@ class HubNotificationService : NotificationListenerService() {
         current?.unregisterCallback(controllerCallback)
         current = list?.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING } ?: list?.firstOrNull()
         current?.registerCallback(controllerCallback)
-        pushNowPlaying(force = true)
+        if (current == null) pushStopped() else pushNowPlaying(force = true)
+    }
+
+    /** The music app closed: tell the board so it can go back to what it was showing. */
+    private fun pushStopped() {
+        if (!prefs().getBoolean("media", false) || lastKey.isEmpty()) return
+        lastKey = ""
+        HubSender.post(this, JSONObject()
+            .put("cmd", "nowplaying")
+            .put("title", lastTitle)
+            .put("artist", "")
+            .put("playing", false)
+            .put("quiet", true))
     }
 
     private fun pushNowPlaying(force: Boolean) {
@@ -133,7 +146,7 @@ class HubNotificationService : NotificationListenerService() {
         val changed = key != lastKey
         if (!changed && !playing) return                     // nothing new while paused
         if (!force && now - lastSent < 8000) return
-        lastKey = key; lastSent = now
+        lastKey = key; lastSent = now; lastTitle = title
 
         HubSender.post(this, JSONObject()
             .put("cmd", "nowplaying")

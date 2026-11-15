@@ -294,36 +294,6 @@ void ping_frame() {
 void canvas_begin(JsonVariantConst) { cv.fillScreen(0); }
 void canvas_frame() {}   // pixels arrive through the "pixels" command
 
-// ============================ AI BUDDY ============================
-String buddyText = "Hi! I'm your buddy.";
-uint32_t buddyStart = 0, buddyTalkUntil = 0, buddyF = 0;
-void buddySay(const String& t) {
-  buddyText = t;
-  buddyStart = millis();
-  buddyTalkUntil = buddyStart + min(12000, (int)t.length() * 55);
-}
-void buddy_begin(JsonVariantConst) { buddyF = 0; buddyStart = millis(); }
-void buddy_frame() {
-  uint32_t now = millis(); buddyF++;
-  bool talking = now < buddyTalkUntil;
-  cv.fillScreen(rgb(10, 14, 30));
-  bool blink = (buddyF % 70) < 3;
-  for (int s = -1; s <= 1; s += 2) {
-    int ex = W / 2 + s * 30, ey = 22;
-    if (blink) cv.drawFastHLine(ex - 9, ey, 18, rgb(60, 220, 255));
-    else { cv.fillCircle(ex, ey, 10, rgb(60, 220, 255)); cv.fillCircle(ex + (talking ? 0 : s * 2), ey, 4, 0); }
-  }
-  int open = talking ? (int)((sinf(buddyF * 0.9f) + 1) * 5) : 0;
-  if (talking) cv.fillRoundRect(W / 2 - 14, 40, 28, 5 + open, 4, rgb(255, 120, 150));
-  else { cv.drawLine(W / 2 - 12, 42, W / 2, 47, rgb(255, 120, 150)); cv.drawLine(W / 2, 47, W / 2 + 12, 42, rgb(255, 120, 150)); }
-  const int perLine = 26, linesPer = 5, perPage = perLine * linesPer;
-  int pages = max(1, ((int)buddyText.length() + perPage - 1) / perPage);
-  int page = ((now - buddyStart) / 3500) % pages;
-  cv.setTextSize(1); cv.setTextColor(ST77XX_WHITE); cv.setTextWrap(true);
-  cv.setCursor(2, 62); cv.print(buddyText.substring(page * perPage, min((int)buddyText.length(), (page + 1) * perPage)));
-  if (pages > 1) { cv.setTextColor(rgb(100, 100, 110)); cv.setCursor(W - 22, H - 9); cv.printf("%d/%d", page + 1, pages); }
-}
-
 // ============================ MUSIC BARS ============================
 #define NB 16
 float barV[NB], barPeak[NB]; uint32_t barLast = 0;
@@ -342,32 +312,7 @@ void bars_frame() {
   }
 }
 
-// ============================ NOW PLAYING ============================
-String npTitle = "Nothing playing", npArtist = "";
-uint32_t npDur = 0, npPos = 0, npSince = 0, npF = 0; bool npPlaying = false;
-void np_begin(JsonVariantConst) { npF = 0; ensurePal(); }
-void np_frame() {
-  uint32_t now = millis(); npF++;
-  cv.fillScreen(rgb(12, 12, 20));
-  uint32_t pos = npPlaying ? npPos + (now - npSince) / 1000 : npPos;
-  if (npDur && pos > npDur) pos = npDur;
-  for (int i = 0; i < 5; i++) {   // equalizer
-    int h = npPlaying ? 4 + (int)((sinf(npF * 0.35f + i * 1.3f) + 1) * 10) : 4;
-    cv.fillRect(8 + i * 8, 40 - h, 6, h, hpal[(i * 40 + npF * 3) & 255]);
-  }
-  ensurePal();
-  cv.setTextSize(1); cv.setTextColor(rgb(120, 120, 140)); cv.setCursor(60, 12); cv.print(npPlaying ? "NOW PLAYING" : "PAUSED");
-  int tw = npTitle.length() * 12;
-  cv.setTextSize(2); cv.setTextColor(ST77XX_WHITE); cv.setTextWrap(false);
-  int x = tw > W - 8 ? 4 - (int)((npF * 2) % (tw + 40)) : 4;
-  cv.setCursor(x, 56); cv.print(npTitle);
-  if (tw > W - 8) { cv.setCursor(x + tw + 40, 56); cv.print(npTitle); }
-  cv.setTextSize(1); cv.setTextColor(ST77XX_CYAN); cv.setCursor(4, 80); cv.print(npArtist.substring(0, 26));
-  cv.drawRoundRect(4, 100, W - 8, 8, 3, rgb(90, 90, 110));
-  if (npDur) cv.fillRoundRect(4, 100, max(6, (int)((W - 8) * pos / npDur)), 8, 3, rgb(60, 220, 255));
-  cv.setTextColor(rgb(140, 140, 160)); cv.setCursor(4, 113); cv.printf("%u:%02u", (unsigned)(pos / 60), (unsigned)(pos % 60));
-  if (npDur) { cv.setCursor(W - 34, 113); cv.printf("%u:%02u", (unsigned)(npDur / 60), (unsigned)(npDur % 60)); }
-}
+#include "music.h"     // now playing
 
 // ============================ ANIMATION (GIF / frames from the app) ============================
 // Frames are 80x64 pixels in RGB332 (8-bit colour, 5 KB each), shown at 2x size. Up to ANIM_MAX frames.
@@ -426,7 +371,7 @@ void pair_frame() {
 
 // ============================ REGISTRY ============================
 const Scene SCENES[] = {
-  {"eyes",   "Robot Eyes",     eyes_begin,    eyes_frame,    33, "[{\"key\":\"mood\",\"type\":\"choice\",\"options\":[\"normal\",\"happy\",\"sleepy\",\"angry\",\"sad\"]}]", true},
+  {"eyes",   "Robot Eyes",     eyes_begin,    eyes_frame,    33, "[{\"key\":\"mood\",\"type\":\"choice\",\"options\":[\"auto\",\"normal\",\"happy\",\"love\",\"excited\",\"surprised\",\"wink\",\"thinking\",\"sleepy\",\"sleeping\",\"sad\",\"angry\",\"dizzy\"]}]", true},
   {"bounce", "Bouncing Logo",  bounce_begin,  bounce_frame,  25, "[{\"key\":\"text\",\"type\":\"text\",\"max\":8}]", true},
   {"matrix", "Matrix Rain",    matrix_begin,  matrix_frame,  45, "[]", true},
   {"stars",  "Starfield",      stars_begin,   stars_frame,   30, "[]", true},
@@ -446,7 +391,7 @@ const Scene SCENES[] = {
   {"anim",   "Animation",      anim_begin,    anim_frame,    30, "[]", false},
   {"pair",   "Pair (QR)",      pair_begin,    pair_frame,    500, "[]", false},
   {"message","Message",        message_begin, message_frame, 30, "[]", false},
-  {"info",   "Device Info",    info_begin,    info_frame,    500, "[]", false},
+  {"info",   "Device Info",    info_begin,    info_frame,    50, "[]", false},
 };
 const int SCENE_COUNT = sizeof(SCENES) / sizeof(SCENES[0]);
 
@@ -468,7 +413,18 @@ bool extraCmd(const char* cmd, JsonDocument& d, JsonDocument& r) {
     wLast = 0; wCode = -1;
     return true;
   }
-  if (!strcmp(cmd, "say")) { gotoScene("buddy"); buddySay(String(d["text"] | "")); return true; }
+  if (!strcmp(cmd, "say")) {      // {"text":"..","mood":"happy"}  (mood optional: picked from the words)
+    gotoScene("buddy");
+    int mi = d["mood"].is<const char*>() ? moodFromName(d["mood"]) : -1;
+    buddySay(String(d["text"] | ""), mi);
+    faceSet(buddyMood);
+    return true;
+  }
+  if (!strcmp(cmd, "mood")) {     // {"mood":"love"}: show a mood on the robot eyes right now
+    const char* m = d["mood"] | "normal";
+    gotoScene("eyes"); eyesSetMood(String(m));
+    return true;
+  }
   if (!strcmp(cmd, "bands")) {
     gotoScene("bars");
     JsonArrayConst a = d["v"].as<JsonArrayConst>();
@@ -477,9 +433,16 @@ bool extraCmd(const char* cmd, JsonDocument& d, JsonDocument& r) {
     return true;
   }
   if (!strcmp(cmd, "nowplaying")) {
-    if (!(d["quiet"] | false)) gotoScene("nowplaying");     // "quiet": only update the data (periodic position sync)
-    npTitle = String(d["title"] | "Unknown"); npArtist = String(d["artist"] | "");
-    npDur = d["dur"] | 0; npPos = d["pos"] | 0; npPlaying = d["playing"] | true; npSince = millis();
+    // {"title","artist","dur","pos","playing","quiet"}: the phone sends this on every track / play-pause change.
+    bool playing = d["playing"] | true;
+    bool quiet = d["quiet"] | false;           // "quiet": only update the data (periodic position sync)
+    if (!quiet && playing && strcmp(SCENES[curScene].id, "nowplaying")) {
+      if (strcmp(SCENES[curScene].id, "message") && strcmp(SCENES[curScene].id, "info")) npPrev = curScene;
+      else npPrev = pendingScene;
+      infoUntil = 0; msgUntil = 0;
+      gotoScene("nowplaying");
+    }
+    npSet(String(d["title"] | "Unknown"), String(d["artist"] | ""), d["dur"] | 0, d["pos"] | 0, playing);
     return true;
   }
   if (!strcmp(cmd, "pixels")) {

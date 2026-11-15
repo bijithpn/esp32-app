@@ -1,6 +1,8 @@
 package com.esp32hub.esp32_hub_app
 
+import android.annotation.SuppressLint
 import android.content.Intent
+import android.location.LocationManager
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -30,6 +32,7 @@ class MainActivity : FlutterActivity() {
                             .putBoolean("mirror", call.argument<Boolean>("mirror") ?: false)
                             .putBoolean("media", call.argument<Boolean>("media") ?: false)
                             .putString("ignore", call.argument<String>("ignore") ?: "")
+                            .putString("id", call.argument<String>("id") ?: "")
                             .apply()
                         result.success(true)
                     }
@@ -43,8 +46,23 @@ class MainActivity : FlutterActivity() {
                             "ignore" to (p.getString("ignore", "") ?: "")
                         ))
                     }
+                    // Last known position (needs the location permission, asked by the Flutter side). Used for the weather.
+                    "getLocation" -> result.success(lastLocation())
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun lastLocation(): Map<String, Double>? {
+        return try {
+            val lm = getSystemService(LOCATION_SERVICE) as LocationManager
+            val best = lm.getProviders(true)
+                .mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
+                .maxByOrNull { it.time }
+            if (best == null) null else mapOf("lat" to best.latitude, "lon" to best.longitude)
+        } catch (_: SecurityException) {
+            null
+        }
     }
 }

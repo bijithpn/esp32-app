@@ -23,37 +23,7 @@ uint16_t hsv(float h, float s = 1.0, float v = 1.0) {   // h: 0..360
   return rgb((r + m) * 255, (g + m) * 255, (b + m) * 255);
 }
 
-// ============================ ROBOT EYES ============================
-String eyeMood = "normal";
-float eLx = 0, eLy = 0, eTx = 0, eTy = 0;
-uint32_t eNextLook = 0, eNextBlink = 0;
-int eBlink = -1;
-
-void eyes_begin(JsonVariantConst a) {
-  if (a["mood"].is<const char*>()) eyeMood = a["mood"].as<String>();
-  eNextLook = eNextBlink = 0; eBlink = -1;
-}
-void eyes_frame() {
-  uint32_t now = millis();
-  if (now > eNextLook) { eTx = random(-12, 13); eTy = random(-7, 8); eNextLook = now + random(1200, 3500); }
-  if (eBlink < 0 && now > eNextBlink) { eBlink = 0; eNextBlink = now + random(2000, 5500); }
-  eLx += (eTx - eLx) * 0.25f; eLy += (eTy - eLy) * 0.25f;
-  float open = 1;
-  if (eBlink >= 0) { open = fabsf(eBlink - 4) / 4.0f; if (++eBlink > 8) eBlink = -1; }
-  if (eyeMood == "sleepy") open *= 0.45f;
-  cv.fillScreen(0);
-  int ew = 42, eh = (int)(56 * open); if (eh < 4) eh = 4;
-  for (int s = -1; s <= 1; s += 2) {
-    int cx = W / 2 + s * 40 + (int)eLx, cy = H / 2 + (int)eLy;
-    int top = cy - eh / 2;
-    int inner = cx - s * ew / 2, outer = cx + s * ew / 2;
-    cv.fillRoundRect(cx - ew / 2, top, ew, eh, 14, rgb(60, 220, 255));
-    if (open > 0.6f) cv.fillCircle(cx + (int)(eLx * 0.3f) - 6, top + 14, 4, rgb(255, 255, 255));
-    if (eyeMood == "happy") cv.fillCircle(cx, cy + eh / 2 + 6, ew * 0.62f, 0);
-    else if (eyeMood == "angry") cv.fillTriangle(outer, top - 1, inner, top - 1, inner, top + eh * 0.45f, 0);
-    else if (eyeMood == "sad") cv.fillTriangle(inner, top - 1, outer, top - 1, outer, top + eh * 0.45f, 0);
-  }
-}
+#include "face.h"      // robot eyes + AI buddy face
 
 // ============================ BOUNCING LOGO ============================
 String bText = "ESP32";
@@ -206,57 +176,4 @@ void name_frame() {
   nFrame++;
 }
 
-// ============================ MESSAGE ============================
-int mFrame = 0;
-void message_begin(JsonVariantConst) { mFrame = 0; }
-void message_frame() {
-  float p = min(1.0f, mFrame / 12.0f); p = 1 - (1 - p) * (1 - p);
-  int xoff = (int)((1 - p) * -W);
-  cv.fillScreen(0);
-  cv.setTextWrap(true);
-  if (msgApp.length()) {                       // notification card: app name, title, body
-    cv.fillRect(0, 0, W, 16, rgb(20, 40, 70));
-    cv.setTextSize(1); cv.setTextColor(rgb(60, 220, 255)); cv.setCursor(6 + xoff, 4); cv.print(msgApp.substring(0, 24));
-    int y = 22;
-    if (msgTitle.length()) {
-      cv.setTextColor(ST77XX_YELLOW); cv.setCursor(6 + xoff, y); cv.print(msgTitle.substring(0, 52));
-      y += ((min((int)msgTitle.length(), 52) + 24) / 25) * 10 + 6;
-    }
-    cv.setTextColor(ST77XX_WHITE); cv.setCursor(6 + xoff, y); cv.print(msgText.substring(0, 150));
-    mFrame++;
-    return;
-  }
-  int n = msgText.length(), size = n <= 8 ? 3 : (n <= 24 ? 2 : 1);
-  int charsPerLine = (W - 16) / (6 * size);
-  int lines = (n + charsPerLine - 1) / charsPerLine; if (lines < 1) lines = 1;
-  int y = max(8, (H - lines * 8 * size) / 2);
-  cv.drawRoundRect(2, 2, W - 4, H - 4, 8, hsv(mFrame * 4));
-  cv.setTextSize(size); cv.setTextColor(ST77XX_WHITE);
-  cv.setCursor(8 + xoff, y); cv.print(msgText);
-  mFrame++;
-}
-
-// ============================ INFO ============================
-void info_begin(JsonVariantConst) {}
-void info_frame() {
-  cv.fillScreen(0);
-  cv.setTextSize(2); cv.setTextColor(rgb(60, 220, 255)); cv.setCursor(6, 6); cv.print("ESP32 Hub");
-  cv.setTextSize(1); cv.setTextColor(ST77XX_WHITE);
-  if (apMode) {
-    cv.setCursor(6, 32); cv.print("SETUP MODE");
-    cv.setCursor(6, 48); cv.print("1. Join Wi-Fi:"); cv.setCursor(6, 58); cv.setTextColor(ST77XX_YELLOW); cv.print(AP_SSID " / " AP_PASS);
-    cv.setTextColor(ST77XX_WHITE);
-    cv.setCursor(6, 74); cv.print("2. Open the app or");
-    cv.setCursor(6, 84); cv.setTextColor(ST77XX_YELLOW); cv.print("http://192.168.4.1");
-  } else {
-    cv.setCursor(6, 32); cv.print("Wi-Fi: "); cv.print(WiFi.SSID());
-    cv.setCursor(6, 46); cv.print("IP:"); cv.setTextSize(2); cv.setTextColor(ST77XX_YELLOW);
-    cv.setCursor(6, 58); cv.print(WiFi.localIP());
-    cv.setTextSize(1); cv.setTextColor(ST77XX_WHITE);
-    cv.setCursor(6, 82); cv.printf("Signal: %d dBm", WiFi.RSSI());
-    cv.setCursor(6, 94); cv.printf("Heap: %u KB", ESP.getFreeHeap() / 1024);
-    cv.setCursor(6, 106); cv.print("host: esp32-hub.local");
-  }
-  cv.setTextColor(rgb(110, 110, 110)); cv.setCursor(6, H - 10); cv.print("fw " FW_VERSION);
-}
-
+#include "cards.h"     // message / notification cards, status + setup screen, boot screen

@@ -23,7 +23,7 @@
 #include "esp_bt.h"
 #include "qrcode_lib.h"   // vendored copy of the MIT-licensed "QRCode" library (ESP-IDF ships a different qrcode.h)
 
-#define FW_VERSION "0.3.0"
+#define FW_VERSION "0.4.0"
 #define TFT_CS 15
 #define TFT_DC 2
 #define TFT_RST 4
@@ -53,13 +53,17 @@ static inline uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
   return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
 }
 
+uint32_t lastClientMs = 0;            // last time an app / browser talked to the board (shown on the status screen)
+uint32_t msgStartMs = 0, msgTtlMs = 0; // current message card timing (progress bar)
+String savedSsid, savedPass;          // Wi-Fi from NVS, kept so the board can keep trying to rejoin
 void mqttApply();
 void bleStart();
 void bleStop();
 int findScene(const char* id);
 void switchScene(int idx, JsonVariantConst args, bool save = true);
 void gotoScene(const char* id);
-extern int curScene;
+extern int curScene, pendingScene;
+extern uint32_t infoUntil, msgUntil;
 
 #include "scenes.h"
 #include "scenes2.h"
@@ -125,12 +129,14 @@ void buildList(JsonDocument& d) {
 }
 
 void apiList() {
+  lastClientMs = millis();
   JsonDocument d;
   buildList(d);
   sendJson(200, d);
 }
 
 void apiStatus() {
+  lastClientMs = millis();
   JsonDocument d;
   d["fw"] = FW_VERSION;
   d["scene"] = SCENES[curScene].id;
@@ -156,10 +162,11 @@ void runCmd(JsonDocument& d, JsonDocument& r) {
     else { infoUntil = 0; msgUntil = 0; switchScene(i, d["args"]); }
   } else if (!strcmp(cmd, "msg") || !strcmp(cmd, "notify")) {
     bool n = cmd[0] == 'n';
-    msgApp = n ? String(d["app"] | "") : String("");
-    msgTitle = n ? String(d["title"] | "") : String("");
-    msgText = String(d["text"] | "");
-    int ttl = d["ttl"] | (n ? 6 : 10);
+    msgApp = n ? asciify(String(d["app"] | "")) : String("");
+    msgTitle = n ? asciify(String(d["title"] | "")) : String("");
+    msgText = asciify(String(d["text"] | ""));
+    int ttl = d["ttl"] | (n ? 7 : 10);
+    msgStartMs = millis(); msgTtlMs = ttl > 0 ? ttl * 1000UL : 0;
     if (strcmp(SCENES[curScene].id, "message")) prevScene = curScene;
     infoUntil = 0;
     switchScene(findScene("message"), JsonVariantConst(), false);
@@ -217,6 +224,7 @@ void deny() { server.send(401, "application/json", "{\"ok\":false,\"error\":\"lo
 
 void apiCmd() {
   if (!authed()) { deny(); return; }
+  lastClientMs = millis();
   JsonDocument d;
   if (deserializeJson(d, server.arg("plain"))) { server.send(400, "text/plain", "bad json"); return; }
   JsonDocument r;
@@ -240,6 +248,14 @@ void apiWifi() {
   rebootAt = millis() + 600;
 }
 
+// Tiny and always open: the app uses it to find the board on the network (it never reveals the token).
+void apiHello() {
+  String ip = apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
+  String out = String("{\"device\":\"ESP32-Hub\",\"id\":\"") + deviceId + "\",\"fw\":\"" FW_VERSION "\",\"ap\":" + (apMode ? "true" : "false") +
+               ",\"lock\":" + (lockOn ? "true" : "false") + ",\"ip\":\"" + ip + "\"}";
+  server.send(200, "application/json", out);
+}
+
 void apiScan() {
   int n = WiFi.scanComplete();
   JsonDocument d;
@@ -254,6 +270,39 @@ void apiScan() {
 
 #include "remote.h"
 
+volatile bool gotIpFlag = false;
+void startMdns() {
+  MDNS.end();
+  if (!MDNS.begin("esp32-hub")) return;
+  MDNS.addService("http", "tcp", 80);
+  MDNS.addService("esp32hub", "tcp", 80);               // lets apps find the board without typing an IP
+  MDNS.addServiceTxt("esp32hub", "tcp", "id", deviceId);
+  MDNS.addServiceTxt("esp32hub", "tcp", "fw", FW_VERSION);
+}
+
+// Keeps the board on Wi-Fi: re-joins after router restarts or signal drops, and while in the fallback hotspot
+// keeps trying the saved network so the board comes back by itself after a power cut.
+void wifiKeepAlive() {
+  static uint32_t lastChk = 0, downSince = 0, lastKick = 0;
+  uint32_t now = millis();
+  if (now - lastChk < 2000) return;
+  lastChk = now;
+  if (!savedSsid.length()) return;
+  if (apMode) {
+    if (WiFi.status() == WL_CONNECTED) { rebootAt = now + 300; return; }     // joined: restart cleanly into normal mode
+    if (WiFi.softAPgetStationNum() == 0 && now - lastKick > 45000) { lastKick = now; WiFi.begin(savedSsid.c_str(), savedPass.c_str()); }
+    return;
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    downSince = 0;
+    if (gotIpFlag) { gotIpFlag = false; startMdns(); }
+    return;
+  }
+  if (!downSince) downSince = now;
+  if (now - downSince > 8000 && now - lastKick > 15000) { lastKick = now; WiFi.disconnect(); WiFi.begin(savedSsid.c_str(), savedPass.c_str()); }
+  if (now - downSince > 300000) rebootAt = now + 100;                          // 5 minutes without Wi-Fi: clean restart
+}
+
 void startAP() {
   apMode = true;
   WiFi.mode(WIFI_AP_STA);
@@ -263,6 +312,7 @@ void startAP() {
 
 void setup() {
   Serial.begin(115200);
+  WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t) { gotIpFlag = true; }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
   SPI.begin(TFT_SCK, -1, TFT_MOSI, -1);   // CS is driven by the display library, not the SPI peripheral
   tft.initR(TAB);
   tft.setRotation(1);
@@ -280,19 +330,25 @@ void setup() {
   bleAvailable = prefs.getBool("ble", false) || !ssid.length();
   if (!bleAvailable) esp_bt_controller_mem_release(ESP_BT_MODE_BTDM);
 
-  tft.setTextColor(ST77XX_WHITE); tft.setTextSize(2); tft.setCursor(10, 50);
-  tft.print(ssid.length() ? "Wi-Fi..." : "Setup mode");
+  savedSsid = ssid; savedPass = pass;
   if (ssid.length()) {
+    WiFi.persistent(false);
     WiFi.mode(WIFI_STA);
+    WiFi.setHostname("esp32-hub");
     WiFi.setAutoReconnect(true);
     WiFi.begin(ssid.c_str(), pass.c_str());
     uint32_t t0 = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - t0 < 15000) delay(250);
-  }
-  if (WiFi.status() != WL_CONNECTED) startAP();
+    while (WiFi.status() != WL_CONNECTED && millis() - t0 < 20000) {      // up to 20 s: a router that is still booting is common after a power cut
+      bootScreen("Joining Wi-Fi", ssid.substring(0, 24).c_str(), (int)((millis() - t0) * 90 / 20000));
+      delay(60);
+    }
+  } else bootScreen("Setup mode", "starting hotspot", 50);
+  if (WiFi.status() != WL_CONNECTED) startAP();   // keeps trying the saved Wi-Fi in the background (see wifiKeepAlive)
   else {
+    WiFi.setSleep(false);                         // no radio sleep: the board answers instantly and stays reachable
+    bootScreen("Connected!", WiFi.localIP().toString().c_str(), 100);
     configTime(tzSec, 0, "pool.ntp.org", "time.google.com");
-    MDNS.begin("esp32-hub");
+    startMdns();
     ArduinoOTA.setHostname("esp32-hub");
     ArduinoOTA.setPassword(AP_PASS);
     ArduinoOTA.onStart([] { tft.fillScreen(0); tft.setTextSize(2); tft.setTextColor(ST77XX_WHITE); tft.setCursor(14, 40); tft.print("Updating..."); });
@@ -309,6 +365,7 @@ void setup() {
   });
   server.on("/wifi", HTTP_POST, apiWifi);
   server.on("/api/wifi", HTTP_POST, apiWifi);
+  server.on("/api/hello", HTTP_GET, apiHello);
   server.on("/api/list", HTTP_GET, apiList);
   server.on("/api/status", HTTP_GET, apiStatus);
   server.on("/api/cmd", HTTP_POST, apiCmd);
@@ -340,15 +397,37 @@ void setup() {
   if (!apMode) infoUntil = millis() + 6000;   // show IP for 6 s, then the saved scene
 }
 
+// Serial console (115200): type a JSON command such as {"cmd":"mood","mood":"love"} and press Enter. Handy for testing without Wi-Fi.
+void serialConsole() {
+  static String line;
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\n' || c == '\r') {
+      if (line.length() > 1 && line[0] == '{') {
+        JsonDocument d, r;
+        if (deserializeJson(d, line)) Serial.println("[cmd] bad json");
+        else { runCmd(d, r); String out; serializeJson(r, out); Serial.println("[cmd] " + out); }
+      }
+      line = "";
+    } else if (line.length() < 1500) line += c;
+  }
+}
+
 void loop() {
+  serialConsole();
   server.handleClient();
   static uint32_t lastLog = 0;
   if (millis() - lastLog > 15000) { lastLog = millis(); Serial.printf("[hub] scene=%s heap=%u mqtt=%s\n", SCENES[curScene].id, ESP.getFreeHeap(), mqttOn ? (mqtt.connected() ? "up" : "down") : "off"); }
   if (!apMode) ArduinoOTA.handle();
   mqttLoop();
   bleLoop();
+  wifiKeepAlive();
   uint32_t now = millis();
   if (rebootAt && now > rebootAt) ESP.restart();
+  if (!strcmp(SCENES[curScene].id, "nowplaying") && !npPlaying && npPauseAt && now - npPauseAt > 25000) {   // music stopped: go back
+    npPauseAt = 0;
+    switchScene(npPrev >= 0 ? npPrev : findScene("eyes"), JsonVariantConst(), false);
+  }
   if (infoUntil && now > infoUntil) { infoUntil = 0; switchScene(pendingScene, JsonVariantConst()); }
   if (msgUntil && now > msgUntil) { msgUntil = 0; switchScene(prevScene, JsonVariantConst(), false); }
   if (autoMs && !infoUntil && !msgUntil && now - lastRotate > autoMs)

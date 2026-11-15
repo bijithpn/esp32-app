@@ -8,12 +8,18 @@ esp32_hub/
 ├── firmware/hub/        ESP32 firmware (Arduino sketch)
 │   ├── hub.ino            Wi-Fi, HTTP API, security token, OTA, scene manager, command runner
 │   ├── remote.h           MQTT client + Bluetooth (BLE) Wi-Fi setup
-│   ├── scenes.h           eyes, bounce, matrix, stars, plasma, clock, name, message/notification card, info
+│   ├── face.h             expressive face engine: 12 moods, robot eyes scene, talking AI buddy
+│   ├── cards.h            notification + message cards, status/setup screen (Wi-Fi QR), boot screen
+│   ├── music.h            now playing (generated album art, spinning record, equaliser)
+│   ├── scenes.h           bounce, matrix, stars, plasma, clock, name
 │   ├── scenes2.h          life, mandelbrot, pet, weather, pomodoro, ping, canvas, animation, buddy, bars, now playing, pair QR
 │   ├── webpage.h          built-in browser UI
 │   └── qrcode_lib.*       small vendored QR library (MIT)
 ├── app/                 Flutter Android app
-│   ├── lib/main.dart      connect screen + home (scene grid)
+│   ├── lib/main.dart      auto-connect start screen, Wi-Fi setup, home
+│   ├── lib/theme.dart     design system + on-screen previews (face, notification, music, weather)
+│   ├── lib/discovery.dart finds the board on the network (no IP typing)
+│   ├── lib/phone.dart     permissions screen (notifications, music, location) + phone sync
 │   ├── lib/api.dart       HTTP and MQTT connections
 │   ├── lib/features.dart  pomodoro, pet, weather, AI buddy, canvas (draw/photo/animation), music
 │   ├── lib/settings.dart  security, remote access, phone sync, QR scanner, Bluetooth setup

@@ -11,6 +11,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
 import 'fft.dart';
+import 'phone.dart';
+import 'theme.dart';
 
 /// Scenes that get their own screen in the app instead of the generic start button.
 Widget? specialPage(String id, Api api) {
@@ -157,7 +159,18 @@ class _WeatherPageState extends State<WeatherPage> {
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(title: const Text('Weather')),
         body: _pad([
-          const Text('Pick a city. The board fetches weather from Open-Meteo (no key needed) every 10 minutes.'),
+          const DisplayFrame(child: WeatherScreen()),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: () async {
+              final ok = await PhoneSync.sendLocation(widget.api);
+              if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ok ? 'Weather set to your location' : 'Allow location first (Phone magic on the home screen)')));
+            },
+            icon: const Icon(Icons.my_location_rounded),
+            label: const Text('Use my location'),
+          ),
+          const SizedBox(height: 16),
+          const Text('Or pick a city. The board fetches weather from Open-Meteo (no key needed) every 10 minutes.'),
           const SizedBox(height: 12),
           Wrap(spacing: 8, runSpacing: 8, children: [
             for (final e in cities.entries)
@@ -203,7 +216,7 @@ class _BuddyPageState extends State<BuddyPage> {
       final k = p.getString('anthropic_key') ?? '';
       if (mounted) setState(() { _key.text = k; _hasKey = k.isNotEmpty; });
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) => send(context, widget.api, {'cmd': 'say', 'text': 'Hi! Ask me anything.'}));
+    WidgetsBinding.instance.addPostFrameCallback((_) => send(context, widget.api, {'cmd': 'say', 'text': 'Hi! I am Pixel. Ask me anything!', 'mood': 'excited'}));
   }
 
   Future<void> _saveKey() async {
@@ -226,7 +239,7 @@ class _BuddyPageState extends State<BuddyPage> {
         ),
       );
 
-  Future<void> _say(String text) => send(context, widget.api, {'cmd': 'say', 'text': text});
+  Future<void> _say(String text, [String? mood]) => send(context, widget.api, {'cmd': 'say', 'text': text, if (mood != null) 'mood': mood});
 
   Future<void> _ask() async {
     final q = _in.text.trim();
@@ -242,15 +255,23 @@ class _BuddyPageState extends State<BuddyPage> {
               body: jsonEncode({
                 'model': 'claude-haiku-5-5',
                 'max_tokens': 200,
-                'system': 'You are a cute tiny desk buddy shown on a small 160x128 screen. Reply in plain text, at most 140 characters, no markdown, no emoji.',
+                'system': 'You are Pixel, a cute, warm, expressive little desk robot shown on a small 160x128 screen. '
+                    'Start every reply with exactly one mood tag in square brackets, chosen from: [happy] [love] [excited] [surprised] [wink] [thinking] [sleepy] [sad] [angry] [normal]. '
+                    'Pick the one that matches how you feel about what you say. Then reply in plain text, at most 140 characters, friendly and playful, no markdown, no emoji.',
                 'messages': hist,
               }))
           .timeout(const Duration(seconds: 30));
       final body = jsonDecode(utf8.decode(r.bodyBytes)) as Map<String, dynamic>;
       if (r.statusCode != 200) throw Exception(body['error']?['message'] ?? 'HTTP ${r.statusCode}');
-      final text = (body['content'] as List).map((c) => c['text'] ?? '').join().trim();
+      var text = (body['content'] as List).map((c) => c['text'] ?? '').join().trim();
+      String? mood;
+      final tag = RegExp(r'^\[(\w+)\]\s*').firstMatch(text);
+      if (tag != null) {
+        mood = tag.group(1)!.toLowerCase();
+        text = text.substring(tag.end);
+      }
       setState(() => _chat.add({'role': 'assistant', 'content': text}));
-      if (mounted) await _say(text);
+      if (mounted) await _say(text, mood);
     } catch (e) {
       setState(() => _chat.add({'role': 'assistant', 'content': 'Error: $e'}));
     } finally {
@@ -746,7 +767,7 @@ class _MediaPageState extends State<MediaPage> {
           SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Playing'), value: _playing, onChanged: (v) => setState(() => _playing = v)),
           FilledButton.icon(onPressed: _np, icon: const Icon(Icons.music_note), label: const Text('Show on display')),
           const SizedBox(height: 16),
-          const Text('To show the song that is really playing on your phone, use Settings > Phone sync (it needs Notification access).', style: TextStyle(fontSize: 12)),
+          const Text('To show the song that is really playing on your phone, open Phone magic on the home screen (it needs Notification access).', style: TextStyle(fontSize: 12)),
         ]),
       );
 }

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,41 +10,9 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
-
-// ---------------------------------------------------------------------------------- phone bridge
-/// Talks to the Android code (HubNotificationService) that mirrors notifications and "now playing".
-class PhoneBridge {
-  static const _ch = MethodChannel('esp32hub/bridge');
-
-  static Future<bool> isGranted() async {
-    try {
-      return (await _ch.invokeMethod<bool>('isGranted')) ?? false;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  static Future<void> openSettings() async {
-    try {
-      await _ch.invokeMethod('openSettings');
-    } catch (_) {}
-  }
-
-  static Future<void> setConfig({required String host, required String token, required bool mirror, required bool media, required String ignore}) async {
-    try {
-      await _ch.invokeMethod('setConfig', {'host': host, 'token': token, 'mirror': mirror, 'media': media, 'ignore': ignore});
-    } catch (_) {}
-  }
-
-  static Future<Map<String, dynamic>> getConfig() async {
-    try {
-      final m = await _ch.invokeMapMethod<String, dynamic>('getConfig');
-      return m ?? {};
-    } catch (_) {
-      return {};
-    }
-  }
-}
+import 'discovery.dart';
+import 'phone.dart';
+import 'theme.dart';
 
 // ---------------------------------------------------------------------------------- QR pairing
 /// What the board's "Pair (QR)" scene encodes: hub://pair?id=C224AC&t=TOKEN&ip=IP
@@ -60,7 +29,7 @@ class PairInfo {
   }
 }
 
-/// Opens the camera and returns the scanned text.
+/// Full-screen QR scanner with a viewfinder. Returns the scanned "hub://pair..." text.
 class QrScanPage extends StatefulWidget {
   const QrScanPage({super.key});
   @override
@@ -68,30 +37,158 @@ class QrScanPage extends StatefulWidget {
 }
 
 class _QrScanPageState extends State<QrScanPage> {
-  bool _done = false;
+  final MobileScannerController _ctl = MobileScannerController(formats: const [BarcodeFormat.qrCode], detectionSpeed: DetectionSpeed.noDuplicates);
+  bool _done = false, _torch = false;
+  bool? _camOk;
+  String? _warn;
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Scan the QR on the display')),
-        body: Column(children: [
-          Expanded(
-            child: MobileScanner(
-              onDetect: (capture) {
-                if (_done) return;
-                final v = capture.barcodes.firstOrNull?.rawValue;
-                if (v != null && v.startsWith('hub://')) {
-                  _done = true;
-                  Navigator.of(context).pop(v);
-                }
-              },
-            ),
-          ),
-          const Padding(
-            padding: EdgeInsets.all(16),
-            child: Text('On the board: open the "Pair (QR)" scene (app: tap Pair on the Settings screen, or the web page: Show pairing QR).'),
-          ),
-        ]),
-      );
+  void initState() {
+    super.initState();
+    _askCamera();
+  }
+
+  @override
+  void dispose() {
+    _ctl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _askCamera() async {
+    final st = await Permission.camera.request();
+    if (mounted) setState(() => _camOk = st.isGranted);
+  }
+
+  void _onDetect(BarcodeCapture capture) {
+    if (_done) return;
+    for (final b in capture.barcodes) {
+      final v = b.rawValue;
+      if (v == null) continue;
+      if (PairInfo.parse(v) != null) {
+        _done = true;
+        HapticFeedback.mediumImpact();
+        Navigator.of(context).pop(v);
+        return;
+      }
+      if (_warn == null) {
+        setState(() => _warn = 'That QR code is not from an ESP32 Hub.');
+        Future.delayed(const Duration(seconds: 3), () { if (mounted) setState(() => _warn = null); });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+    final box = (size.shortestSide * 0.68).clamp(200.0, 320.0);
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: _camOk == null
+          ? const Center(child: CircularProgressIndicator())
+          : _camOk == false
+              ? SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.all(28),
+                    child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      const Icon(Icons.no_photography_rounded, size: 56, color: HubColors.muted),
+                      const SizedBox(height: 18),
+                      const Text('Camera access is needed', textAlign: TextAlign.center, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
+                      const SizedBox(height: 8),
+                      const Text('Only to read the QR code on your board. Nothing is recorded or sent anywhere.', textAlign: TextAlign.center, style: TextStyle(color: HubColors.muted, height: 1.4)),
+                      const SizedBox(height: 24),
+                      FilledButton(onPressed: openAppSettings, child: const Text('Open settings')),
+                      const SizedBox(height: 10),
+                      OutlinedButton(onPressed: _askCamera, child: const Text('Try again')),
+                      const SizedBox(height: 10),
+                      TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+                    ]),
+                  ),
+                )
+              : Stack(children: [
+                  Positioned.fill(child: MobileScanner(controller: _ctl, onDetect: _onDetect)),
+                  // dark overlay with a clear square in the middle
+                  Positioned.fill(child: CustomPaint(painter: _ViewfinderPainter(box))),
+                  Positioned.fill(child: _ScanLine(box: box)),
+                  SafeArea(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Row(children: [
+                        IconButton.filledTonal(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded)),
+                        const Spacer(),
+                        IconButton.filledTonal(
+                          onPressed: () { _ctl.toggleTorch(); setState(() => _torch = !_torch); },
+                          icon: Icon(_torch ? Icons.flash_on_rounded : Icons.flash_off_rounded),
+                        ),
+                      ]),
+                    ),
+                  ),
+                  Positioned(
+                    left: 24,
+                    right: 24,
+                    bottom: 0,
+                    child: SafeArea(
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 20),
+                        child: Column(mainAxisSize: MainAxisSize.min, children: [
+                          if (_warn != null) Padding(padding: const EdgeInsets.only(bottom: 12), child: StatusPill(color: HubColors.warn, label: _warn!)),
+                          Panel(
+                            color: HubColors.surface.withValues(alpha: 0.92),
+                            child: const Column(mainAxisSize: MainAxisSize.min, children: [
+                              Text('Scan the code on your board', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                              SizedBox(height: 6),
+                              Text('On the board, open the "Pair (QR)" scene (Settings > Show pairing QR on display), then hold the phone about 20 cm from the screen.',
+                                  textAlign: TextAlign.center, style: TextStyle(color: HubColors.muted, fontSize: 13, height: 1.4)),
+                            ]),
+                          ),
+                        ]),
+                      ),
+                    ),
+                  ),
+                ]),
+    );
+  }
+}
+
+class _ViewfinderPainter extends CustomPainter {
+  _ViewfinderPainter(this.box);
+  final double box;
+  @override
+  void paint(Canvas canvas, Size size) {
+    final r = RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(size.width / 2, size.height * 0.42), width: box, height: box), const Radius.circular(24));
+    final dim = Path()..addRect(Offset.zero & size)..addRRect(r)..fillType = PathFillType.evenOdd;
+    canvas.drawPath(dim, Paint()..color = Colors.black.withValues(alpha: 0.62));
+    final p = Paint()..color = HubColors.accent..style = PaintingStyle.stroke..strokeWidth = 4..strokeCap = StrokeCap.round;
+    const l = 34.0;
+    final b = r.outerRect;
+    for (final c in [
+      [b.topLeft, const Offset(l, 0), const Offset(0, l)],
+      [b.topRight, const Offset(-l, 0), const Offset(0, l)],
+      [b.bottomLeft, const Offset(l, 0), const Offset(0, -l)],
+      [b.bottomRight, const Offset(-l, 0), const Offset(0, -l)],
+    ]) {
+      canvas.drawLine(c[0], c[0] + c[1], p);
+      canvas.drawLine(c[0], c[0] + c[2], p);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ViewfinderPainter old) => old.box != box;
+}
+
+/// A line that sweeps up and down inside the viewfinder.
+class _ScanLine extends StatelessWidget {
+  const _ScanLine({required this.box});
+  final double box;
+  @override
+  Widget build(BuildContext context) => Live(paint: (c, size, t) {
+        final top = size.height * 0.42 - box / 2 + 12, h = box - 24;
+        final k = (math.sin(t * 2.2) + 1) / 2;
+        final y = top + k * h;
+        c.drawRRect(
+          RRect.fromRectAndRadius(Rect.fromLTWH(size.width / 2 - box / 2 + 14, y - 1.5, box - 28, 3), const Radius.circular(2)),
+          Paint()..color = HubColors.accent.withValues(alpha: 0.9)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+        );
+      });
 }
 
 // ---------------------------------------------------------------------------------- SETTINGS
@@ -295,125 +392,15 @@ class _SettingsPageState extends State<SettingsPage> {
           ListTile(
             contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.notifications_active),
-            title: const Text('Phone sync'),
-            subtitle: const Text('Mirror notifications and show the song that is playing'),
+            title: const Text('Phone magic'),
+            subtitle: const Text('Notifications, music and weather from your phone'),
             trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => PhoneSyncPage(api: widget.api))),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => PermissionsPage(api: widget.api))),
           ),
         ]),
       ]),
     );
   }
-}
-
-// ---------------------------------------------------------------------------------- PHONE SYNC
-class PhoneSyncPage extends StatefulWidget {
-  const PhoneSyncPage({super.key, required this.api});
-  final Api api;
-  @override
-  State<PhoneSyncPage> createState() => _PhoneSyncPageState();
-}
-
-class _PhoneSyncPageState extends State<PhoneSyncPage> with WidgetsBindingObserver {
-  bool _granted = false, _mirror = false, _media = false;
-  final _ignore = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _load();
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _load();      // back from Android settings
-  }
-
-  Future<void> _load() async {
-    final g = await PhoneBridge.isGranted();
-    final c = await PhoneBridge.getConfig();
-    if (!mounted) return;
-    setState(() {
-      _granted = g;
-      _mirror = c['mirror'] == true;
-      _media = c['media'] == true;
-      _ignore.text = (c['ignore'] as String?) ?? '';
-    });
-  }
-
-  Future<void> _save() async {
-    final a = widget.api;
-    await PhoneBridge.setConfig(
-      host: a is HttpApi ? a.host : '',
-      token: a is HttpApi ? a.token : '',
-      mirror: _mirror,
-      media: _media,
-      ignore: _ignore.text.trim(),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Phone sync')),
-        body: ListView(padding: const EdgeInsets.all(16), children: [
-          if (!widget.api.isLocal)
-            Card(
-              color: Theme.of(context).colorScheme.errorContainer,
-              child: const Padding(
-                padding: EdgeInsets.all(12),
-                child: Text('You are connected through MQTT. Phone sync sends to the board over your local Wi-Fi, so connect to the board by its IP address for this to work.'),
-              ),
-            ),
-          Card(
-            child: ListTile(
-              leading: Icon(_granted ? Icons.check_circle : Icons.warning_amber, color: _granted ? Colors.greenAccent : Colors.orangeAccent),
-              title: Text(_granted ? 'Notification access granted' : 'Notification access needed'),
-              subtitle: const Text('Android requires you to allow this app in "Notification access". It is used only to read notifications and the current song, and send them to your board.'),
-              trailing: FilledButton(onPressed: PhoneBridge.openSettings, child: Text(_granted ? 'Open' : 'Allow')),
-            ),
-          ),
-          SwitchListTile(
-            title: const Text('Mirror notifications'),
-            subtitle: const Text('New notifications appear as a card on the display'),
-            value: _mirror,
-            onChanged: (v) { setState(() => _mirror = v); _save(); },
-          ),
-          SwitchListTile(
-            title: const Text('Show now playing'),
-            subtitle: const Text('Title, artist and progress of the current song (any music app)'),
-            value: _media,
-            onChanged: (v) { setState(() => _media = v); _save(); },
-          ),
-          TextField(
-            controller: _ignore,
-            decoration: const InputDecoration(labelText: 'Ignore apps containing (comma separated)', hintText: 'bank, otp, messages'),
-            onSubmitted: (_) => _save(),
-            onEditingComplete: _save,
-          ),
-          const SizedBox(height: 8),
-          const Text('Tip: add banking and OTP apps here so their notifications never reach the display.', style: TextStyle(fontSize: 12)),
-          const SizedBox(height: 16),
-          OutlinedButton.icon(
-            onPressed: () async {
-              await _save();
-              try {
-                await widget.api.cmd({'cmd': 'notify', 'app': 'ESP32 Hub', 'title': 'Test', 'text': 'Notification mirroring works!'});
-              } catch (_) {}
-            },
-            icon: const Icon(Icons.send),
-            label: const Text('Send a test notification'),
-          ),
-          const SizedBox(height: 16),
-          const Text('Works in the background once enabled, even when this app is closed, as long as the phone is on the same Wi-Fi as the board.', style: TextStyle(fontSize: 12)),
-        ]),
-      );
 }
 
 // ---------------------------------------------------------------------------------- BLE SETUP
@@ -515,8 +502,14 @@ class _BleSetupPageState extends State<BleSetupPage> {
       if (last is Map && last['ok'] == false) {
         setState(() { _busy = false; _msg = 'Board said: ${last['error']}'; });
       } else {
-        setState(() { _busy = false; _msg = 'Saved. The board is restarting and joining "$ssid". Its IP address appears on its screen. '
-            'Rejoin your Wi-Fi, then connect by that IP.'; });
+        setState(() { _msg = 'Saved. The board is restarting and joining "$ssid"…'; });
+        final f = await Discovery.waitFor('${_info?['id'] ?? ''}', limit: const Duration(seconds: 75));
+        if (!mounted) return;
+        if (f != null) {
+          Navigator.pop(context, f);
+          return;
+        }
+        setState(() { _busy = false; _msg = 'The board is joining "$ssid" but I cannot see it yet. Make sure your phone is back on your home Wi-Fi, then go back and tap Search again.'; });
       }
     } catch (e) {
       setState(() { _busy = false; _msg = 'Could not send: $e'; });
