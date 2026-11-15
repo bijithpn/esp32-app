@@ -3,100 +3,138 @@ package com.esp32hub.esp32_hub_app
 import android.content.Context
 import android.content.SharedPreferences
 import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.InetSocketAddress
-import java.net.NetworkInterface
-import java.net.Socket
-import java.net.URL
-import java.util.concurrent.Callable
-import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.ArrayDeque
+import java.util.UUID
 
 /**
- * Sends commands to the ESP32 Hub over local HTTP, from native code, so notification mirroring and
- * "now playing" keep working when the Flutter UI is closed. The address and token are saved by
- * the Flutter app through the "esp32hub/bridge" method channel.
+ * Sends commands to the ESP32 Hub over local HTTP from native code, so notification mirroring and "now playing" keep
+ * working when the Flutter UI is closed. Address and token are saved by the Flutter app (the token is stored encrypted
+ * with a Keystore key, see [SecureStore]).
  *
- * If the board cannot be reached (new IP after a router restart), it is searched for on the local network by
- * its id and the saved address is updated, so everything keeps working without opening the app.
+ * Delivery rules (so nothing stale is ever replayed after the board was away):
+ *  - one worker thread, a queue of at most 6 jobs
+ *  - a notification older than 20 s, or a now-playing update older than 30 s, is dropped instead of sent
+ *  - only the newest now-playing update is kept
+ *  - while the board is unreachable the worker backs off (2 s, 4 s ... 60 s) and drops what arrives meanwhile
+ *  - every command carries a request id, so a retry after a lost reply is not executed twice by the board
  */
 object HubSender {
-    private val executor = Executors.newSingleThreadExecutor()
-    private val finder = Executors.newSingleThreadExecutor()
-    private val finding = AtomicBoolean(false)
-    @Volatile private var failures = 0
-    @Volatile private var lastFind = 0L
+    private data class Job(val body: JSONObject, val media: Boolean, val created: Long)
 
-    fun prefs(ctx: Context): SharedPreferences =
-        ctx.getSharedPreferences("hub_bridge", Context.MODE_PRIVATE)
+    private val queue = ArrayDeque<Job>()
+    private val lock = java.lang.Object()
+    private var worker: Thread? = null
+    @Volatile private var failures = 0
+    @Volatile private var nextTryAt = 0L
+    @Volatile private var lastFind = 0L
+    @Volatile private var finding = false
+
+    private const val TTL_NOTIFY = 20_000L
+    private const val TTL_MEDIA = 30_000L
+    private const val MAX_QUEUE = 6
+
+    fun prefs(ctx: Context): SharedPreferences = ctx.getSharedPreferences("hub_bridge", Context.MODE_PRIVATE)
+
+    fun token(ctx: Context): String {
+        SecureStore.get(ctx, "bridge_token")?.let { return it }
+        val legacy = prefs(ctx).getString("token", "") ?: ""      // written by an older version: move it into the secure store
+        if (legacy.isNotEmpty()) {
+            SecureStore.put(ctx, "bridge_token", legacy)
+            prefs(ctx).edit().remove("token").apply()
+        }
+        return legacy
+    }
 
     fun post(ctx: Context, body: JSONObject) {
-        val p = prefs(ctx)
-        val host = p.getString("host", "") ?: ""
-        if (host.isEmpty()) return
-        val token = p.getString("token", "") ?: ""
-        executor.execute {
-            try {
-                val c = URL("http://$host/api/cmd").openConnection() as HttpURLConnection
-                c.requestMethod = "POST"
-                c.connectTimeout = 3000
-                c.readTimeout = 4000
-                c.doOutput = true
-                c.setRequestProperty("Content-Type", "application/json")
-                if (token.isNotEmpty()) c.setRequestProperty("X-Hub-Token", token)
-                c.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-                c.responseCode            // wait for the reply so the connection is closed cleanly
-                c.disconnect()
-                failures = 0
-            } catch (_: Exception) {
-                // board unreachable (different network / off / new address)
-                if (++failures >= 2) rediscover(ctx)
+        val app = ctx.applicationContext
+        if ((prefs(app).getString("host", "") ?: "").isEmpty()) return
+        val media = body.optString("cmd") == "nowplaying"
+        synchronized(lock) {
+            if (media) queue.removeAll { it.media }                       // only the newest song state matters
+            while (queue.size >= MAX_QUEUE) queue.removeFirst()
+            body.put("rid", UUID.randomUUID().toString().substring(0, 12))
+            queue.addLast(Job(body, media, System.currentTimeMillis()))
+            if (worker == null || worker?.isAlive != true) {
+                worker = Thread({ run(app) }, "hub-sender").also { it.isDaemon = true; it.start() }
             }
+            lock.notifyAll()
         }
     }
 
-    /** Looks for the board (by id) on every /24 network of this phone and saves its new address. */
+    private fun run(ctx: Context) {
+        while (true) {
+            val job: Job = synchronized(lock) {
+                while (queue.isEmpty()) {
+                    lock.wait(60_000)
+                    if (queue.isEmpty()) { worker = null; return }          // idle for a minute: let the thread end
+                }
+                queue.removeFirst()
+            }
+            val age = System.currentTimeMillis() - job.created
+            if (age > (if (job.media) TTL_MEDIA else TTL_NOTIFY)) { record(ctx, false, "stale"); continue }
+            if (failures >= 2 && System.currentTimeMillis() < nextTryAt) { record(ctx, false, "offline"); continue }
+            deliver(ctx, job)
+        }
+    }
+
+    private fun deliver(ctx: Context, job: Job) {
+        val p = prefs(ctx)
+        val host = p.getString("host", "") ?: ""
+        if (host.isEmpty()) return
+        val token = token(ctx)
+        val headers = HashMap<String, String>()
+        headers["Content-Type"] = "application/json"
+        if (token.isNotEmpty()) headers["X-Hub-Token"] = token
+        var res: Map<String, Any?> = emptyMap()
+        for (attempt in 0..1) {                                              // one retry is safe: the board de-duplicates by request id
+            res = NativeNet.http(ctx, "POST", "http://$host/api/cmd", headers, job.body.toString(), 4000)
+            if (res["status"] != null) break
+        }
+        val status = (res["status"] as? Int) ?: 0
+        if (status in 200..299) {
+            failures = 0; record(ctx, true, "ok")
+        } else if (status == 401 || status == 429) {
+            record(ctx, false, if (status == 401) "token" else "rate")      // the board is there but refuses: no point in searching for it
+        } else {
+            failures++
+            nextTryAt = System.currentTimeMillis() + minOf(60_000L, 1000L shl minOf(failures, 6))
+            record(ctx, false, (res["error"] as? String) ?: "http_$status")
+            if (failures >= 2) rediscover(ctx)
+        }
+    }
+
+    private fun record(ctx: Context, ok: Boolean, code: String) {
+        prefs(ctx).edit().putString("last_delivery", "${System.currentTimeMillis()}|${if (ok) 1 else 0}|$code").apply()
+    }
+
+    /** Looks for the board (by id): UDP discovery first (one packet), then a /24 sweep, and saves its new address. */
     private fun rediscover(ctx: Context) {
         val now = System.currentTimeMillis()
-        if (now - lastFind < 60_000 || !finding.compareAndSet(false, true)) return
-        lastFind = now
-        finder.execute {
+        if (now - lastFind < 60_000 || finding) return
+        lastFind = now; finding = true
+        Thread({
             try {
                 val p = prefs(ctx)
                 val id = p.getString("id", "") ?: ""
-                val prefixes = NetworkInterface.getNetworkInterfaces().toList()
-                    .flatMap { it.inetAddresses.toList() }
-                    .filter { !it.isLoopbackAddress && it.address.size == 4 }
-                    .map { a -> a.address.take(3).joinToString(".") { (it.toInt() and 0xFF).toString() } }
-                    .filter { !it.startsWith("169.254") }
-                    .distinct()
-                for (pre in prefixes) {
-                    val pool = Executors.newFixedThreadPool(32)
-                    val found = (1..254).map { i ->
-                        pool.submit(Callable<String?> {
-                            val h = "$pre.$i"
-                            try {
-                                Socket().use { s -> s.connect(InetSocketAddress(h, 80), 400) }
-                                val c = URL("http://$h/api/hello").openConnection() as HttpURLConnection
-                                c.connectTimeout = 800; c.readTimeout = 1200
-                                val txt = c.inputStream.bufferedReader().readText()
-                                c.disconnect()
-                                val j = JSONObject(txt)
-                                if (j.optString("device") == "ESP32-Hub" && !j.optBoolean("ap") && (id.isEmpty() || j.optString("id") == id)) h else null
-                            } catch (_: Exception) { null }
-                        })
-                    }.mapNotNull { it.get() }
-                    pool.shutdown()
-                    if (found.isNotEmpty()) {
-                        p.edit().putString("host", found[0]).apply()
-                        failures = 0
-                        return@execute
+                fun pick(list: List<Map<String, String>>): String? {
+                    for (m in list) {
+                        val j = NativeNet.json(m["body"] ?: "") ?: continue
+                        if (j.optString("device") == "ESP32-Hub" && !j.optBoolean("ap") && (id.isEmpty() || j.optString("id") == id)) return m["host"]
+                    }
+                    return null
+                }
+                var found = pick(NativeNet.udp(ctx, 41234, "ESP32_HUB_DISCOVER_V1", 1200))
+                if (found == null) {
+                    for (pre in NativeNet.prefixes(ctx)) {
+                        found = pick(NativeNet.sweep(ctx, (1..254).map { "$pre.$it" }, "/api/hello", 700))
+                        if (found != null) break
                     }
                 }
+                if (found != null) { p.edit().putString("host", found).apply(); failures = 0; nextTryAt = 0 }
             } catch (_: Exception) {
             } finally {
-                finding.set(false)
+                finding = false
             }
-        }
+        }, "hub-rediscover").also { it.isDaemon = true; it.start() }
     }
 }

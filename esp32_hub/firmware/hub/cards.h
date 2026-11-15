@@ -126,7 +126,7 @@ int infoFrame = 0;
 void info_begin(JsonVariantConst) {
   infoFrame = 0; faceSet(M_HAPPY); faceSnap();
   if ((apMode || hotspotOn) && !wifiQrReady) {
-    String s = String("WIFI:T:WPA;S:") + AP_SSID + ";P:" + AP_PASS + ";;";
+    String s = String("WIFI:T:WPA;S:") + AP_SSID + ";P:" + apPass + ";;";
     qrcode_initText(&wifiQr, wifiQrBuf, 3, ECC_LOW, s.c_str());
     wifiQrReady = true;
   }
@@ -171,7 +171,7 @@ void info_frame() {
     // pulsing dot + password (for phones that cannot scan)
     int pulse = 2 + (int)((sinf(now * 0.006f) + 1) * 1.5f);
     cv.fillCircle(8, H - 9, pulse, rgb(255, 214, 110));
-    cv.setTextColor(rgb(110, 120, 150)); cv.setCursor(18, H - 12); cv.print("Password: " AP_PASS);
+    cv.setTextColor(rgb(110, 120, 150)); cv.setCursor(18, H - 12); cv.print(String("Password: ") + apPass);
     return;
   }
 

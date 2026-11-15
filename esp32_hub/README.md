@@ -32,6 +32,34 @@ esp32_hub/
 
 ---
 
+# Release 2.0 (app) / 0.6.0 (firmware): connectivity, security and UI overhaul
+
+**Read [ARCHITECTURE.md](ARCHITECTURE.md) for the design, the audit, security notes, measurements and what still needs a physical test.**
+
+What changed, in short:
+
+- **One connection manager** (`app/lib/core/connection.dart`) owns discovery, authentication, health, reconnection, the command queue and diagnostics. 14 explicit states with a transition table.
+- **Discovery** runs known IP, hostname, UDP broadcast (port 41234), mDNS and a bounded sweep at the same time and verifies every answer against `/api/hello` (device marker, id, firmware).
+- **Wi-Fi setup** is a guided 6-step flow. The phone joins the Hub's hotspot with `WifiNetworkSpecifier` and is never pinned to it: all Hub traffic goes through the Wi-Fi `Network` object on the Kotlin side. The board reports why a join failed (wrong password, not found, unsupported security, weak signal, DHCP, router) and setup survives an app restart.
+- **Per-board hotspot password** (no more shared `hub12345`), shown on the board's screen and in its QR. The Hub is locked with a token during pairing; tokens, the MQTT password and the Anthropic key live in the Android Keystore.
+- **Firmware API v1** (additive, old apps keep working): `/api/hello`, `/api/ping`, `/api/capabilities`, `/api/diag`, `/api/networks`, `/api/ota/status`, request ids with replay protection, rate-limited token checks, payload limits, UDP discovery, crash counters + safe mode, on-board schedule, software dimming, OTA header/size/model/MD5 checks.
+- **New UI**: graphite design system, motion system with reduced-motion support, scene library with categories and favourites, mood picker, focus timer synced to the Hub, pet, weather with city search, AI buddy, pixel editor with undo/zoom/import, GIF editor with memory estimate, music, notification privacy, diagnostics, firmware centre, schedule, presets, history, backup, multi-device.
+
+## Flashing (0.6.0)
+Same as before (see 2.2). The first boot of 0.6.0 creates the hotspot password: read it on the display (hold BOOT 2 s) or from the serial monitor (`[hub] hotspot password: ...`).
+Boards on 0.5.x keep working with the new app in legacy mode (no diagnostics, no request ids, no schedule); update them from Settings > Device > Firmware or by USB.
+
+## Android setup
+`flutter pub get`, then build as usual (`flutter build apk`). Permissions are optional and explained in Settings > Permissions: notification access (notifications, music), location (weather), camera (QR), microphone (visualiser), battery optimisation exemption (more reliable background delivery; Doze can still delay it). Joining the Hub's hotspot needs no location permission (Android 10+ shows its own approval dialog; Android 9 and older ask you to join the Wi-Fi manually).
+
+## Compatibility
+| App | Firmware | Result |
+|---|---|---|
+| 2.0 | 0.6.0 | everything |
+| 2.0 | 0.4.x / 0.5.x | works in legacy mode (identity from `/api/hello`, no `/api/ping`, `state`, `sched`, diagnostics) |
+| 1.5 | 0.6.0 | works: all old endpoints and fields are unchanged; the hotspot password differs |
+
+
 ## 1. Hardware
 
 | Display pin (1.8" ST7735S, "SPI 128x160 V1.1") | ESP32 pin |
@@ -80,7 +108,7 @@ If the port is not accessible: `sudo usermod -aG dialout $USER` and log in again
 ### 2.3 First boot: give it Wi-Fi
 
 A board with no Wi-Fi saved starts **setup mode**: the screen shows `SETUP MODE`, it creates its own hotspot
-**`ESP32-Hub`** (password **`hub12345`**) and also advertises over Bluetooth. Pick one:
+**`ESP32-Hub`** (password: the 8-character code **shown on the board's screen**, different for every board) and also advertises over Bluetooth. Pick one:
 
 - **Bluetooth (app):** Connect screen > *New board? Set up Wi-Fi with Bluetooth*.
 - **Hotspot + browser:** join `ESP32-Hub`, open **`http://192.168.4.1`** (type the full `http://`), choose your network (2.4 GHz only), Save.
@@ -98,7 +126,7 @@ The browser page is a full controller: scene buttons, message box, auto-rotate, 
 - Setup mode (hotspot) is always open so you can recover a locked board: join the hotspot and use *Forget Wi-Fi*, or flash it over USB.
 - The **Pair (QR)** scene shows a QR code with the device id, token and IP. The app's *Scan pairing QR* fills everything in. Whoever can see the screen can pair, so treat the screen like a key.
 - Over MQTT and Bluetooth commands, the token is always required (MQTT) or required when locked (Bluetooth).
-- The hotspot password and the OTA password are `hub12345`. Change `AP_PASS` in `hub.ino` for anything beyond a desk.
+- The hotspot password is generated per board on first boot (stored in flash, shown on the display and in its Wi-Fi QR). The Arduino OTA password is the same code.
 
 ### 2.5 Remote access (MQTT)
 
@@ -126,7 +154,7 @@ In setup mode with Bluetooth on, free RAM is about 30 KB, so image uploads do no
 
 The board must be on your Wi-Fi.
 - **Browser:** build a `.bin` (`arduino-cli compile ... hub --output-dir out`), open `http://<ip>/`, *Firmware update*, choose `out/hub.ino.bin`. (Needs the token when locked; the page asks.)
-- **Arduino CLI:** `arduino-cli upload -p <ip> --protocol network --upload-field password=hub12345 --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs hub`
+- **Arduino CLI:** `arduino-cli upload -p <ip> --protocol network --upload-field password=<code shown on the board> --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs hub`
 
 ### 2.8 Serial log
 
@@ -140,7 +168,7 @@ Prints `[hub] fw ... id=... mode=... ip=... lock mqtt ble heap`, and every 15 s 
 | Setting | Where |
 |---|---|
 | Wrong colours / shifted edge | `#define TAB` in `hub.ino`: `INITR_BLACKTAB` (default), `INITR_GREENTAB`, `INITR_REDTAB` |
-| Hotspot name/password, OTA password | `AP_SSID`, `AP_PASS` in `hub.ino` |
+| Hotspot name | `AP_SSID` in `hub.ino` (the password is generated per board) |
 | Time zone | app menu > Time zone, or `{"cmd":"tz","sec":19800}` (default India UTC+5:30) |
 | Weather location | app > Weather, or `{"cmd":"loc","lat":..,"lon":..}` |
 
@@ -334,6 +362,6 @@ BLE advertising seen from a computer; memory stays flat during the tests; no reb
 - The Android app pins itself to a Wi-Fi without internet (the board's hotspot) so Android does not send traffic over mobile data.
 - Notification access on Android 13+ for sideloaded apps: App info > ⋮ > Allow restricted settings.
 - **Pairing mode** (firmware 0.5.0): hold the board's BOOT button for 1.5 s, or use the app menu "Pairing mode", to switch the
-  `ESP32-Hub` hotspot (password `hub12345`) on for 10 minutes while the board stays on your Wi-Fi. The screen shows the Wi-Fi QR.
+  `ESP32-Hub` hotspot (per-board password) on for 10 minutes while the board stays on your Wi-Fi. The screen shows the Wi-Fi QR.
 - **First boot Wi-Fi**: copy `firmware/hub/secrets.h.example` to `secrets.h` (git-ignored) to give a new board your Wi-Fi without app setup.
 

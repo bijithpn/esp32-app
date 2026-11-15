@@ -1,8 +1,8 @@
 // ESP32 Hub - modular scene firmware for a 1.8" ST7735 (128x160, landscape 160x128)
 // Control it from the Flutter app (Wi-Fi HTTP, MQTT remote, BLE setup) or any browser.
 //
-// First boot (no saved Wi-Fi): the board starts a hotspot "ESP32-Hub" (password hub12345).
-// Join it, open http://192.168.4.1 (or use the app) and enter your home Wi-Fi.
+// First boot (no saved Wi-Fi): the board starts a hotspot "ESP32-Hub". Its password is generated per board on first boot and is
+// shown on the board's screen (and inside the Wi-Fi QR code). Join it, open http://192.168.4.1 (or use the app) and enter your home Wi-Fi.
 //
 // Wiring (unchanged): CS=15 DC/A0=2 RST=4 SCK=18 SDA/MOSI=23 LED=3V3 VCC=3V3 GND=GND
 #include <Adafruit_GFX.h>
@@ -25,7 +25,7 @@
 #include "esp_bt.h"
 #include "qrcode_lib.h"   // vendored copy of the MIT-licensed "QRCode" library (ESP-IDF ships a different qrcode.h)
 
-#define FW_VERSION "0.5.1"
+#define FW_VERSION "0.6.0"
 #define TFT_CS 15
 #define TFT_DC 2
 #define TFT_RST 4
@@ -35,7 +35,6 @@
 #define W 160
 #define H 128
 #define AP_SSID "ESP32-Hub"
-#define AP_PASS "hub12345"
 
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 GFXcanvas16 cv(W, H);
@@ -50,6 +49,7 @@ bool hotspotOn = false;       // "pairing mode": the ESP32-Hub hotspot is up whi
 uint32_t hotspotUntil = 0;
 String msgText = "Hello!";    // shown by the "message" scene
 String msgApp = "", msgTitle = "";   // set for notification cards (see "notify")
+String apPass;               // per-board hotspot password (8 characters, generated on first boot, shown on the display)
 String hubToken, deviceId;    // security token (16 hex) and 6-char id from the MAC
 bool lockOn = false;          // when true, API calls from the network need the token
 bool mqttOn = false, bleOn = false;
@@ -68,10 +68,12 @@ enum WifiTry { WT_IDLE, WT_TRY, WT_OK, WT_FAIL };
 WifiTry wifiTry = WT_IDLE;
 uint32_t wifiTryAt = 0;
 String trySsid, tryPass, tryIp, tryReason;
+volatile bool assocSeen = false;                 // the radio associated with the router (before DHCP)
 volatile int lastDiscReason = 0, discCount = 0;   // last Wi-Fi disconnect reason and how many since the join started (see the event handler in setup)
 void mqttApply();
 void bleStart();
-void startHotspot();
+void startHotspot(uint32_t ms = 600000);
+void stopHotspot();
 void bleStop();
 int findScene(const char* id);
 void switchScene(int idx, JsonVariantConst args, bool save = true);
@@ -82,6 +84,7 @@ extern uint32_t infoUntil, msgUntil;
 #include "scenes.h"
 #include "scenes2.h"
 #include "webpage.h"
+#include "hubcore.h"
 
 int curScene = 0, prevScene = 0, pendingScene = 0;
 uint32_t lastFrame = 0, infoUntil = 0, msgUntil = 0, autoMs = 0, lastRotate = 0;
@@ -103,6 +106,7 @@ void switchScene(int idx, JsonVariantConst args, bool save) {
   if (idx < 0 || idx >= SCENE_COUNT) return;
   if (idx != curScene && !strcmp(SCENES[curScene].id, "anim")) animClear();   // give the frames' RAM back
   curScene = idx;
+  touchState();
   SCENES[idx].begin(args);
   lastFrame = 0;
   lastRotate = millis();
@@ -127,6 +131,9 @@ void buildList(JsonDocument& d) {
   d["device"] = "ESP32-Hub";
   d["id"] = deviceId;
   d["fw"] = FW_VERSION;
+  d["name"] = deviceName;
+  d["apiVersion"] = API_VERSION;
+  d["rev"] = stateRev;
   d["scene"] = SCENES[curScene].id;
   d["ip"] = apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
   d["ap"] = apMode;
@@ -161,6 +168,8 @@ void apiStatus() {
   d["rssi"] = apMode ? 0 : WiFi.RSSI();
   d["ssid"] = apMode ? AP_SSID : WiFi.SSID();
   d["tz"] = tzSec;
+  d["rev"] = stateRev;
+  d["dim"] = dimLevel;
   sendJson(200, d);
 }
 
@@ -224,9 +233,11 @@ void runCmd(JsonDocument& d, JsonDocument& r) {
     rebootAt = millis() + 500;
   } else if (!strcmp(cmd, "pair")) {
     gotoScene("pair");
-  } else if (!strcmp(cmd, "pairing")) {           // turn the hotspot + Wi-Fi QR on (10 minutes) without leaving the home Wi-Fi
-    startHotspot();
-    r["hotspot"] = AP_SSID;
+  } else if (!strcmp(cmd, "pairing")) {           // {"sec":600}: hotspot + Wi-Fi QR on (60..1800 s) without leaving the home Wi-Fi; {"off":true} ends it
+    if (d["off"] | false) stopHotspot();
+    else { startHotspot((uint32_t)constrain((int)(d["sec"] | 600), 60, 1800) * 1000UL); r["hotspot"] = AP_SSID; r["seconds"] = (int)((hotspotUntil - millis()) / 1000); }
+  } else if (hubCoreCmd(cmd, d, r)) {
+    // handled by hubcore.h
   } else if (extraCmd(cmd, d, r)) {
     // handled by scenes2.h
   } else { r["ok"] = false; r["error"] = "unknown cmd"; }
@@ -235,19 +246,37 @@ void runCmd(JsonDocument& d, JsonDocument& r) {
 // Token check for network calls. Setup mode (hotspot) is always open so you can recover a locked board.
 bool authed() {
   if (!lockOn || apMode) return true;
+  if (authBlocked()) return false;
   String t = server.header("X-Hub-Token");
   if (!t.length()) t = server.arg("t");
-  return t == hubToken;
+  if (tokenEq(t, hubToken)) return true;
+  if (t.length()) authFailed();                   // a wrong token counts towards the rate limit, a missing one does not
+  return false;
 }
-void deny() { server.send(401, "application/json", "{\"ok\":false,\"error\":\"locked: token required\"}"); }
+void deny() {
+  if (authBlocked()) {
+    server.sendHeader("Retry-After", "30");
+    server.send(429, "application/json", "{\"ok\":false,\"success\":false,\"errorCode\":\"rate_limited\",\"error\":\"too many wrong tokens, try again in 30 s\"}");
+  } else server.send(401, "application/json", "{\"ok\":false,\"success\":false,\"errorCode\":\"auth_required\",\"error\":\"locked: token required\"}");
+}
 
 void apiCmd() {
   if (!authed()) { deny(); return; }
   lastClientMs = millis();
+  const String& body = server.arg("plain");
+  if (body.length() > 9000) { server.send(413, "application/json", "{\"ok\":false,\"success\":false,\"errorCode\":\"payload_too_large\",\"error\":\"payload too large\"}"); return; }
   JsonDocument d;
-  if (deserializeJson(d, server.arg("plain"))) { server.send(400, "text/plain", "bad json"); return; }
+  if (deserializeJson(d, body)) { server.send(400, "application/json", "{\"ok\":false,\"success\":false,\"errorCode\":\"bad_json\",\"error\":\"bad json\"}"); return; }
+  String rid = String(d["rid"] | server.header("X-Request-Id").c_str());
   JsonDocument r;
+  String cached;
+  if (rid.length() && idemLookup(rid.c_str(), cached)) {        // the app is retrying a command whose reply got lost: do not run it twice
+    if (!deserializeJson(r, cached)) { r["replay"] = true; sendJson(200, r); return; }
+  }
   runCmd(d, r);
+  finishResponse(r, rid.c_str());
+  if (rid.length()) { String s; serializeJson(r, s); idemStore(rid.c_str(), s); }
+  if (rid.length()) server.sendHeader("X-Request-Id", rid);
   sendJson(200, r);
 }
 
@@ -257,12 +286,13 @@ void apiWifi() {
   bool json = false;
   if (server.hasArg("ssid")) { ssid = server.arg("ssid"); pass = server.arg("pass"); }
   else {
+    if (server.arg("plain").length() > 400) { server.send(413, "application/json", "{\"ok\":false,\"errorCode\":\"payload_too_large\"}"); return; }
     JsonDocument d;
     if (deserializeJson(d, server.arg("plain"))) { server.send(400, "text/plain", "bad json"); return; }
     ssid = String(d["ssid"] | ""); pass = String(d["pass"] | "");
     json = true;
   }
-  if (!ssid.length()) { server.send(400, "text/plain", "ssid required"); return; }
+  if (!ssid.length() || ssid.length() > 32 || pass.length() > 63) { server.send(400, "application/json", "{\"ok\":false,\"state\":\"fail\",\"reason\":\"invalid_credentials\"}"); return; }
   if (ssid == AP_SSID) {
     server.send(200, "application/json", "{\"ok\":false,\"state\":\"fail\",\"reason\":\"own_hotspot\"}");
     return;
@@ -272,7 +302,7 @@ void apiWifi() {
     // on a board that is already online a failed try goes back to the old network, so a typo never strands it.
     trySsid = ssid; tryPass = pass; tryIp = ""; tryReason = "";
     wifiTry = WT_TRY; wifiTryAt = millis();
-    lastDiscReason = 0; discCount = 0;
+    lastDiscReason = 0; discCount = 0; assocSeen = false;
     server.send(200, "application/json", "{\"ok\":true,\"state\":\"connecting\"}");   // answer first: the radio may leave the app's network now
     delay(50);
     esp_wifi_scan_stop();             // a scan that is still running makes the join fail
@@ -288,54 +318,90 @@ void apiWifi() {
   rebootAt = millis() + 600;
 }
 
-// Progress of the join started by apiWifi. state: idle | connecting | ok | fail (reason: bad_password | not_found | timeout)
+// Progress of the join started by apiWifi.
+// state: idle | connecting | ok | fail
+// phase: idle | associating | waiting_dhcp | verifying | completed | failed
+// reason: bad_password | not_found | unsupported_security | assoc_failed | weak_signal | dhcp_timeout | router_unavailable | timeout
 void apiWifiStatus() {
   const char* st = wifiTry == WT_TRY ? "connecting" : wifiTry == WT_OK ? "ok" : wifiTry == WT_FAIL ? "fail" : "idle";
+  const char* ph = wifiTry == WT_TRY ? (!assocSeen ? "associating" : "waiting_dhcp") : wifiTry == WT_OK ? "completed" : wifiTry == WT_FAIL ? "failed" : "idle";
   JsonDocument d;
   d["state"] = st;
+  d["phase"] = ph;
   d["ssid"] = trySsid;
   d["ip"] = tryIp;
   d["reason"] = tryReason;
+  d["discReason"] = lastDiscReason;
+  d["elapsedMs"] = wifiTry == WT_TRY ? (uint32_t)(millis() - wifiTryAt) : 0;
   d["online"] = WiFi.status() == WL_CONNECTED;
   sendJson(200, d);
 }
 
-// Tiny and always open: the app uses it to find the board on the network (it never reveals the token).
-void apiHello() {
-  String ip = apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
-  String out = String("{\"device\":\"ESP32-Hub\",\"id\":\"") + deviceId + "\",\"fw\":\"" FW_VERSION "\",\"ap\":" + (apMode ? "true" : "false") +
-               ",\"online\":" + (WiFi.status() == WL_CONNECTED ? "true" : "false") + ",\"lock\":" + (lockOn ? "true" : "false") + ",\"ip\":\"" + ip + "\"}";
-  server.send(200, "application/json", out);
+// Small and always open: the app and UDP discovery use it to identify the board. It never reveals the token.
+void apiHello() { JsonDocument d; buildHello(d); sendJson(200, d); }
+
+// Tiny health probe for the app's connection monitor: identity + a change counter, so the app only re-reads the scene list when it moved.
+void apiPing() {
+  lastClientMs = millis();
+  JsonDocument d;
+  d["ok"] = true; d["id"] = deviceId; d["fw"] = FW_VERSION; d["scene"] = SCENES[curScene].id; d["rev"] = stateRev;
+  d["uptime"] = millis() / 1000; d["rssi"] = apMode ? 0 : WiFi.RSSI(); d["heap"] = ESP.getFreeHeap(); d["lock"] = lockOn;
+  sendJson(200, d);
 }
+void apiCaps() { JsonDocument d; buildCaps(d); sendJson(200, d); }
+void apiDiag() { if (!authed()) { deny(); return; } lastClientMs = millis(); JsonDocument d; buildDiag(d); sendJson(200, d); }
 
 // Networks around the board, strongest first. The scan runs in the background and restarts by itself, so an empty or
 // stale result never sticks (the app and the setup page just keep asking).
-void apiScan() {
+// rich = false: ["name", ...] (older apps and the web page); rich = true: [{ssid, rssi, channel, auth, secure, supported}, ...]
+static const char* authName(int m, bool& supported) {
+  supported = true;
+  switch (m) {
+    case WIFI_AUTH_OPEN: return "open";
+    case WIFI_AUTH_WEP: supported = false; return "wep";
+    case WIFI_AUTH_WPA_PSK: return "wpa";
+    case WIFI_AUTH_WPA2_PSK: return "wpa2";
+    case WIFI_AUTH_WPA_WPA2_PSK: return "wpa/wpa2";
+    case WIFI_AUTH_WPA2_ENTERPRISE: supported = false; return "enterprise";
+    case WIFI_AUTH_WPA3_PSK: supported = false; return "wpa3";            // WPA3-only networks have not been verified on this board
+    case WIFI_AUTH_WPA2_WPA3_PSK: return "wpa2/wpa3";                       // mixed mode: the board joins with WPA2
+    default: supported = false; return "other";
+  }
+}
+
+static void scanCollect(JsonDocument& d, bool rich) {
   static uint32_t scanStarted = 0;
   int n = WiFi.scanComplete();
-  JsonDocument d;
   JsonArray arr = d.to<JsonArray>();
   if (n > 0) {
-    String names[24]; int rs[24]; int m = 0;
+    String names[24]; int rs[24], idx[24]; int m = 0;
     for (int i = 0; i < n; i++) {
       String s = WiFi.SSID(i);
       if (!s.length() || s == AP_SSID) continue;
       int r = WiFi.RSSI(i);
       bool dup = false;
-      for (int j = 0; j < m; j++) if (names[j] == s) { dup = true; if (r > rs[j]) rs[j] = r; break; }
-      if (!dup && m < 24) { names[m] = s; rs[m] = r; m++; }
+      for (int j = 0; j < m; j++) if (names[j] == s) { dup = true; if (r > rs[j]) { rs[j] = r; idx[j] = i; } break; }
+      if (!dup && m < 24) { names[m] = s; rs[m] = r; idx[m] = i; m++; }
     }
-    for (int a = 0; a < m; a++) for (int b = a + 1; b < m; b++) if (rs[b] > rs[a]) { int t = rs[a]; rs[a] = rs[b]; rs[b] = t; String ts = names[a]; names[a] = names[b]; names[b] = ts; }
-    for (int j = 0; j < m; j++) arr.add(names[j]);
-    if (millis() - scanStarted > 20000) { WiFi.scanDelete(); WiFi.scanNetworks(true); scanStarted = millis(); }   // refresh for next time
-  } else if (n != WIFI_SCAN_RUNNING) {      // nothing found, or never started: start (again)
+    for (int a = 0; a < m; a++) for (int b = a + 1; b < m; b++) if (rs[b] > rs[a]) {
+      int t = rs[a]; rs[a] = rs[b]; rs[b] = t; t = idx[a]; idx[a] = idx[b]; idx[b] = t; String ts = names[a]; names[a] = names[b]; names[b] = ts;
+    }
+    for (int j = 0; j < m; j++) {
+      if (!rich) { arr.add(names[j]); continue; }
+      bool sup; const char* an = authName(WiFi.encryptionType(idx[j]), sup);
+      JsonObject o = arr.add<JsonObject>();
+      o["ssid"] = names[j]; o["rssi"] = rs[j]; o["channel"] = WiFi.channel(idx[j]);
+      o["auth"] = an; o["secure"] = strcmp(an, "open") != 0; o["supported"] = sup;
+    }
+    if (millis() - scanStarted > 20000 && wifiTry != WT_TRY) { WiFi.scanDelete(); WiFi.scanNetworks(true); scanStarted = millis(); }   // refresh for next time (never during a join attempt)
+  } else if (n != WIFI_SCAN_RUNNING && wifiTry != WT_TRY) {      // nothing found, or never started: start (again)
     WiFi.scanDelete();
     WiFi.scanNetworks(true);
     scanStarted = millis();
   }
-  String out; serializeJson(d, out);
-  server.send(200, "application/json", out);
 }
+void apiScan() { JsonDocument d; scanCollect(d, false); String out; serializeJson(d, out); server.send(200, "application/json", out); }
+void apiNetworks() { JsonDocument d; scanCollect(d, true); String out; serializeJson(d, out); server.send(200, "application/json", out); }
 
 #include "remote.h"
 
@@ -343,11 +409,17 @@ void startAP();
 volatile bool gotIpFlag = false;
 void startMdns() {
   MDNS.end();
-  if (!MDNS.begin("esp32-hub")) return;
+  String host = String("esp32-hub-") + deviceId;
+  host.toLowerCase();                                   // unique per board, so several hubs can share one network
+  if (!MDNS.begin(host.c_str())) return;
+  MDNS.setInstanceName(deviceName);
   MDNS.addService("http", "tcp", 80);
-  MDNS.addService("esp32hub", "tcp", 80);               // lets apps find the board without typing an IP
+  MDNS.addService("esp32hub", "tcp", 80);               // _esp32hub._tcp: lets apps find the board without typing an IP
   MDNS.addServiceTxt("esp32hub", "tcp", "id", deviceId);
+  MDNS.addServiceTxt("esp32hub", "tcp", "name", deviceName);
   MDNS.addServiceTxt("esp32hub", "tcp", "fw", FW_VERSION);
+  MDNS.addServiceTxt("esp32hub", "tcp", "api", String(API_VERSION));
+  MDNS.addServiceTxt("esp32hub", "tcp", "caps", "scenes,weather,music,notify,anim,mqtt,ota,schedule");
 }
 
 // Keeps the board on Wi-Fi: re-joins after router restarts or signal drops, and while in the fallback hotspot
@@ -357,12 +429,10 @@ void wifiKeepAlive() {
   uint32_t now = millis();
   if (now - lastChk < 1000) return;
   lastChk = now;
-  if (hotspotOn && (int32_t)(now - hotspotUntil) > 0) {                         // pairing mode over
-    hotspotOn = false;
-    if (dnsOn) { dnsServer.stop(); dnsOn = false; }
-    WiFi.softAPdisconnect(true);
-    WiFi.mode(WIFI_STA);
-    Serial.println("[wifi] pairing mode ended");
+  if (hotspotOn && (int32_t)(now - hotspotUntil) > 0) stopHotspot();             // pairing window is over
+  if (apMode && savedSsid.length() && wifiTry == WT_IDLE && WiFi.softAPgetStationNum() == 0 && now > 1800000UL && now - lastClientMs > 1800000UL) {
+    Serial.println("[wifi] fallback hotspot idle for 30 min: restarting to retry the saved network");   // never leave the hotspot up forever after a router outage
+    rebootAt = now + 300;
   }
   if (wifiTry == WT_OK) return;                                                // joined: waiting for the restart
   if (wifiTry == WT_TRY) {                                                     // a join started from the app is in progress
@@ -377,12 +447,20 @@ void wifiKeepAlive() {
         rebootAt = now + 6000;                                                 // leave time for the app to read the result, then restart cleanly
       } else {
         // reasons: 15/202/204/14 = the password (handshake/auth) was refused, 201 = no network with that name in range
+        // IDF disconnect reasons: 15/202/204/14 = handshake / auth refused (password), 201 = no network with that name,
+        // 210/211 = only networks with another security mode, 203/5 = association refused, 200/212 = beacon lost / signal too weak,
+        // 205 = the router dropped the connection. associated but no address for 15 s = the router's DHCP is not answering.
         int rsn = lastDiscReason;
         const char* why = nullptr;
         if (el > 3000 && discCount >= 1 && (rsn == 15 || rsn == 202 || rsn == 204 || rsn == 14)) why = "bad_password";
+        else if (el > 4000 && (rsn == 210 || rsn == 211)) why = "unsupported_security";
         else if (el > 9000 && rsn == 201) why = "not_found";
-        else if (el > 14000 && rsn == 0) why = "not_found";          // not even a disconnect event: nothing answered under that name
-        else if (el > 20000) why = "not_found";                       // never joined and never a password error: the name is wrong or out of range
+        else if (el > 6000 && (rsn == 203 || rsn == 5)) why = "assoc_failed";
+        else if (el > 8000 && (rsn == 200 || rsn == 212)) why = "weak_signal";
+        else if (assocSeen && el > 15000) why = "dhcp_timeout";
+        else if (el > 10000 && rsn == 205) why = "router_unavailable";
+        else if (el > 14000 && rsn == 0 && !assocSeen) why = "not_found";   // not even a disconnect event: nothing answered under that name
+        else if (el > 25000) why = "timeout";                                // nothing more specific is known
         if (why) {
           tryReason = why; wifiTry = WT_FAIL; WiFi.disconnect(false);
           Serial.printf("[wifi] join failed: %s (reason %d)\n", why, rsn);
@@ -415,24 +493,35 @@ void wifiKeepAlive() {
   }                          // 5 minutes without Wi-Fi: clean restart
 }
 
-// Pairing mode: ESP32-Hub hotspot alongside the home Wi-Fi (the hotspot follows the router's channel). Off again after 10 minutes.
-void startHotspot() {
+// Pairing mode: ESP32-Hub hotspot alongside the home Wi-Fi (the hotspot follows the router's channel). Ends after `ms` (default 10 minutes).
+void startHotspot(uint32_t ms) {
   if (apMode) return;                              // setup mode already has the hotspot
   hotspotOn = true;
-  hotspotUntil = millis() + 600000;
+  hotspotUntil = millis() + ms;
   if (WiFi.getMode() != WIFI_AP_STA) WiFi.mode(WIFI_AP_STA);
   int ch = WiFi.status() == WL_CONNECTED ? WiFi.channel() : 6;
-  bool ok = WiFi.softAP(AP_SSID, AP_PASS, ch ? ch : 6, 0, 4);
-  Serial.printf("[wifi] pairing mode: hotspot %s on channel %d\n", ok ? "up" : "FAILED", ch);
+  bool ok = WiFi.softAP(AP_SSID, apPass.c_str(), ch ? ch : 6, 0, 4);
+  Serial.printf("[wifi] pairing mode: hotspot %s on channel %d for %u s\n", ok ? "up" : "FAILED", ch, (unsigned)(ms / 1000));
   if (!dnsOn) { dnsServer.start(53, "*", WiFi.softAPIP()); dnsOn = true; }
+  wifiQrReady = false;
   infoUntil = 0; msgUntil = 0;
   switchScene(findScene("info"), JsonVariantConst(), false);   // shows the Wi-Fi QR
+}
+
+void stopHotspot() {
+  if (!hotspotOn) return;
+  hotspotOn = false;
+  if (dnsOn) { dnsServer.stop(); dnsOn = false; }
+  WiFi.softAPdisconnect(true);
+  WiFi.mode(WIFI_STA);
+  Serial.println("[wifi] pairing mode ended");
+  if (!strcmp(SCENES[curScene].id, "info")) infoUntil = millis() + 500;   // leave the QR screen
 }
 
 void startAP() {
   apMode = true;
   WiFi.mode(WIFI_AP_STA);
-  bool ok = WiFi.softAP(AP_SSID, AP_PASS, 6, 0, 4);
+  bool ok = WiFi.softAP(AP_SSID, apPass.c_str(), 6, 0, 4);
   Serial.printf("[wifi] softAP %s ssid=%s ip=%s heap=%u\n", ok ? "ok" : "FAILED", AP_SSID, WiFi.softAPIP().toString().c_str(), ESP.getFreeHeap());
   // A STA that keeps retrying a saved network makes the radio hop channels, and then the hotspot is barely visible
   // ("Wi-Fi not available" when scanning its QR). Stop the constant retries; wifiKeepAlive tries again briefly now and then.
@@ -440,6 +529,73 @@ void startAP() {
   WiFi.disconnect(false);
   if (!dnsOn) { dnsServer.start(53, "*", WiFi.softAPIP()); dnsOn = true; }
   WiFi.scanNetworks(true);   // async, used for the setup page list
+}
+
+// ---------- OTA (HTTP upload): authenticated, size + header + MD5 checked, progress on the display ----------
+// Compatibility checks: X-Hub-Model must match when sent, the image must fit the free slot, the first bytes must be a valid ESP32
+// app image header, and X-Hub-Md5 (when sent) must match what was written. The other slot is only switched to when everything passed.
+// There is NO automatic rollback: the stock Arduino bootloader is built without app-rollback support (see README).
+bool otaBusy = false;
+String otaState = "idle", otaError = "", otaFrom = "";
+uint32_t otaWritten = 0, otaTotal = 0, otaLastMs = 0;
+static bool otaOk = false;
+static int otaPct = -1;
+
+static void otaFail(const char* why) {
+  otaOk = false; otaError = why; otaState = "failed"; otaBusy = false;
+  if (Update.isRunning()) Update.abort();
+  Serial.printf("[ota] failed: %s\n", why);
+}
+
+static void otaScreen(int pct) {
+  tft.fillScreen(0); tft.setTextColor(ST77XX_WHITE); tft.setTextSize(2); tft.setCursor(14, 36); tft.print("Updating");
+  tft.setTextSize(1); tft.setCursor(14, 62); tft.print("Do not unplug the board");
+  tft.drawRect(10, 80, W - 20, 12, ST77XX_WHITE);
+  tft.fillRect(12, 82, (W - 24) * constrain(pct, 0, 100) / 100, 8, ST77XX_GREEN);
+}
+
+void otaUpload() {
+  HTTPUpload& up = server.upload();
+  if (up.status == UPLOAD_FILE_START) {
+    otaOk = true; otaError = ""; otaState = "receiving"; otaWritten = 0; otaPct = -1;
+    otaTotal = server.header("X-Hub-Size").toInt();
+    if (!authed()) return otaFail("unauthorized");
+    String model = server.header("X-Hub-Model");
+    if (model.length() && model != OTA_MODEL) return otaFail("wrong_model");
+    if (otaTotal && otaTotal > ESP.getFreeSketchSpace()) return otaFail("too_large");
+    if (!Update.begin(otaTotal ? otaTotal : UPDATE_SIZE_UNKNOWN)) return otaFail("begin_failed");
+    String md5 = server.header("X-Hub-Md5");
+    if (md5.length() == 32) Update.setMD5(md5.c_str());
+    otaBusy = true; otaLastMs = millis();
+    otaScreen(0);
+  } else if (up.status == UPLOAD_FILE_WRITE) {
+    if (!otaOk) return;
+    if (otaWritten == 0 && up.currentSize >= 24) {                // ESP image header: magic 0xE9, <= 16 segments, chip id 0 (ESP32)
+      if (up.buf[0] != 0xE9 || up.buf[1] > 16 || up.buf[12] != 0 || up.buf[13] != 0) return otaFail("not_esp32_image");
+    }
+    if (Update.write(up.buf, up.currentSize) != up.currentSize) return otaFail("write_failed");
+    otaWritten += up.currentSize; otaLastMs = millis();
+    int pct = otaTotal ? (int)((uint64_t)otaWritten * 100 / otaTotal) : 0;
+    if (pct / 4 != otaPct / 4) { otaPct = pct; otaScreen(pct); }
+  } else if (up.status == UPLOAD_FILE_END) {
+    if (!otaOk) return;
+    if (!Update.end(true)) return otaFail(Update.hasError() ? Update.errorString() : "verify_failed");
+    otaFrom = FW_VERSION; otaState = "ok"; otaBusy = false;
+    prefs.putString("ota_from", FW_VERSION);                      // the next boot reports which version it was updated from
+  } else if (up.status == UPLOAD_FILE_ABORTED) {
+    otaFail("aborted");
+  }
+}
+
+void otaFinish() {
+  server.sendHeader("Connection", "close");
+  if (otaState == "ok") {
+    server.send(200, "application/json", String("{\"ok\":true,\"state\":\"ok\",\"reboot\":true,\"from\":\"") + FW_VERSION + "\"}");
+    rebootAt = millis() + 800;
+  } else {
+    int code = otaError == "unauthorized" ? (authBlocked() ? 429 : 401) : 400;
+    server.send(code, "application/json", String("{\"ok\":false,\"state\":\"failed\",\"errorCode\":\"ota_") + otaError + "\",\"error\":\"" + otaError + "\"}");
+  }
 }
 
 void setup() {
@@ -450,16 +606,27 @@ void setup() {
     lastDiscReason = info.wifi_sta_disconnected.reason; discCount++;
     Serial.printf("[wifi] STA disconnected, reason %d\n", info.wifi_sta_disconnected.reason);
   }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
-  WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t) { Serial.printf("[wifi] STA connected, ip %s rssi %d\n", WiFi.localIP().toString().c_str(), WiFi.RSSI()); }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
+  WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t) { Serial.printf("[wifi] STA got ip %s rssi %d\n", WiFi.localIP().toString().c_str(), WiFi.RSSI()); }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
+  WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t) { assocSeen = true; }, ARDUINO_EVENT_WIFI_STA_CONNECTED);
   SPI.begin(TFT_SCK, -1, TFT_MOSI, -1);   // CS is driven by the display library, not the SPI peripheral
   tft.initR(TAB);
   tft.setRotation(1);
   tft.fillScreen(0);
   prefs.begin("hub", false);
+  bootDiagBegin();                                // reset reason, crash counters, safe mode, device name
+  dimSet(prefs.getUChar("dim", 0));
+  schedLoad();
   tzSec = prefs.getLong("tz", 19800);
   uint8_t mac[6]; esp_read_mac(mac, ESP_MAC_WIFI_STA);
   char idb[8]; snprintf(idb, sizeof idb, "%02X%02X%02X", mac[3], mac[4], mac[5]);
   deviceId = idb;
+  apPass = prefs.getString("appass", "");         // per-board hotspot password: generated once, never the old shared default
+  if (apPass.length() != 8) {
+    static const char alphabet[] = "abcdefghjkmnpqrstuvwxyz23456789";   // no look-alike characters (i l o 0 1)
+    apPass = "";
+    for (int i = 0; i < 8; i++) apPass += alphabet[esp_random() % (sizeof(alphabet) - 1)];
+    prefs.putString("appass", apPass);
+  }
   hubToken = prefs.getString("token", "");
   if (hubToken.length() < 8) { hubToken = genToken(); prefs.putString("token", hubToken); }
   lockOn = prefs.getBool("lock", false);
@@ -485,7 +652,7 @@ void setup() {
   if (ssid.length()) {
     WiFi.persistent(false);
     WiFi.mode(WIFI_STA);
-    WiFi.setHostname("esp32-hub");
+    { String hn = String("esp32-hub-") + deviceId; hn.toLowerCase(); WiFi.setHostname(hn.c_str()); }
     WiFi.setAutoReconnect(true);
     WiFi.begin(ssid.c_str(), pass.c_str());
     uint32_t t0 = millis();
@@ -502,8 +669,8 @@ void setup() {
     bootScreen("Connected!", WiFi.localIP().toString().c_str(), 100);
     configTime(tzSec, 0, "pool.ntp.org", "time.google.com");
     startMdns();
-    ArduinoOTA.setHostname("esp32-hub");
-    ArduinoOTA.setPassword(AP_PASS);
+    { String hn = String("esp32-hub-") + deviceId; hn.toLowerCase(); ArduinoOTA.setHostname(hn.c_str()); }
+    ArduinoOTA.setPassword(apPass.c_str());
     ArduinoOTA.onStart([] { tft.fillScreen(0); tft.setTextSize(2); tft.setTextColor(ST77XX_WHITE); tft.setCursor(14, 40); tft.print("Updating..."); });
     ArduinoOTA.onProgress([](unsigned int p, unsigned int t) { tft.fillRect(10, 80, (W - 20) * p / t, 10, ST77XX_GREEN); });
     ArduinoOTA.begin();
@@ -528,32 +695,30 @@ void setup() {
   server.on("/api/wifi", HTTP_POST, apiWifi);
   server.on("/api/wifi/status", HTTP_GET, apiWifiStatus);
   server.on("/api/hello", HTTP_GET, apiHello);
+  server.on("/api/ping", HTTP_GET, apiPing);
+  server.on("/api/capabilities", HTTP_GET, apiCaps);
+  server.on("/api/diag", HTTP_GET, apiDiag);
+  server.on("/api/networks", HTTP_GET, apiNetworks);
+  server.on("/api/ota/status", HTTP_GET, [] { JsonDocument d; d["state"] = otaState; d["error"] = otaError; d["written"] = otaWritten; d["total"] = otaTotal; d["from"] = otaFrom; d["fw"] = FW_VERSION; sendJson(200, d); });
   server.on("/api/list", HTTP_GET, apiList);
   server.on("/api/status", HTTP_GET, apiStatus);
   server.on("/api/cmd", HTTP_POST, apiCmd);
-  server.on("/update", HTTP_POST, [] {
-    if (!authed()) { deny(); return; }
-    server.sendHeader("Connection", "close");
-    server.send(200, "text/plain", Update.hasError() ? "Update FAILED" : "Update OK, rebooting...");
-    rebootAt = millis() + 600;
-  }, [] {
-    static bool ok = false;
-    HTTPUpload& up = server.upload();
-    if (up.status == UPLOAD_FILE_START) { ok = authed(); if (ok) Update.begin(UPDATE_SIZE_UNKNOWN); }
-    else if (ok && up.status == UPLOAD_FILE_WRITE) Update.write(up.buf, up.currentSize);
-    else if (ok && up.status == UPLOAD_FILE_END) Update.end(true);
-  });
-  const char* hdrs[] = {"X-Hub-Token"};
-  server.collectHeaders(hdrs, 1);
+  server.on("/update", HTTP_POST, otaFinish, otaUpload);
+  const char* hdrs[] = {"X-Hub-Token", "X-Request-Id", "X-Hub-Model", "X-Hub-Size", "X-Hub-Md5"};
+  server.collectHeaders(hdrs, 5);
   server.begin();
-  mqttApply();                                   // starts MQTT if it was enabled before
+  if (!safeMode) mqttApply();                    // starts MQTT if it was enabled before (not in safe mode)
   if (bleAvailable) bleStart();                  // BLE Wi-Fi setup is on in first-time setup mode
   Serial.printf("\n[hub] fw %s  id=%s  mode=%s  ip=%s  lock=%d  mqtt=%d  ble=%d  heap=%u\n", FW_VERSION, deviceId.c_str(),
                 apMode ? "AP(setup)" : "STA", apMode ? WiFi.softAPIP().toString().c_str() : WiFi.localIP().toString().c_str(),
                 lockOn, mqttOn, bleOn, ESP.getFreeHeap());
-  if (apMode) Serial.println("[hub] join Wi-Fi '" AP_SSID "' (password " AP_PASS ") then open http://192.168.4.1");
+  if (apMode) Serial.println("[hub] join Wi-Fi '" AP_SSID "' (password shown on the display) then open http://192.168.4.1");
+  if (apMode) Serial.printf("[hub] hotspot password: %s\n", apPass.c_str());
 
-  pendingScene = findScene(prefs.getString("scene", "eyes").c_str());
+  otaFrom = prefs.getString("ota_from", "");
+  if (otaFrom.length()) { otaState = "updated"; prefs.remove("ota_from"); }   // this boot follows a successful update
+  discoveryBegin();                              // UDP discovery on port 41234
+  pendingScene = findScene(safeMode ? "eyes" : prefs.getString("scene", "eyes").c_str());   // safe mode: no saved scene that might be the one that crashed
   if (pendingScene < 0) pendingScene = 0;
   switchScene(findScene("info"), JsonVariantConst(), false);
   if (!apMode) infoUntil = millis() + 6000;   // show IP for 6 s, then the saved scene
@@ -575,8 +740,15 @@ void serialConsole() {
   }
 }
 
+uint32_t frameUsAvg = 0, loopGapMax = 0;
+
 void loop() {
+  static uint32_t lastLoopMs = 0, gapReset = 0;
+  { uint32_t t = millis(); if (lastLoopMs && t - lastLoopMs > loopGapMax) loopGapMax = t - lastLoopMs; lastLoopMs = t; if (t - gapReset > 60000) { gapReset = t; loopGapMax = 0; } }
   serialConsole();
+  discoveryLoop();
+  schedTick();
+  bootDiagTick();
   if (dnsOn) dnsServer.processNextRequest();
   {                                                // hold the BOOT button for 1.5 s: pairing mode (hotspot + Wi-Fi QR)
     static uint32_t downAt = 0;
@@ -600,9 +772,16 @@ void loop() {
   if (msgUntil && now > msgUntil) { msgUntil = 0; switchScene(prevScene, JsonVariantConst(), false); }
   if (autoMs && !infoUntil && !msgUntil && now - lastRotate > autoMs)
     switchScene(nextScene(curScene), JsonVariantConst());
+  if (otaBusy) {                                   // an update is running: leave the screen alone, give up if the upload stalls
+    if (now - otaLastMs > 20000) otaFail("stalled");
+    return;
+  }
   if (now - lastFrame >= SCENES[curScene].frameMs) {
     lastFrame = now;
+    uint32_t t0 = micros();
     SCENES[curScene].frame();
-    tft.drawRGBBitmap(0, 0, cv.getBuffer(), W, H);
+    if (dimLevel) drawCanvasDimmed(); else tft.drawRGBBitmap(0, 0, cv.getBuffer(), W, H);
+    uint32_t us = micros() - t0;
+    frameUsAvg = frameUsAvg ? (frameUsAvg * 7 + us) / 8 : us;
   } else delay(1);
 }

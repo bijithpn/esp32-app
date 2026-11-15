@@ -1,0 +1,51 @@
+name: Firmware Release
+
+# Builds the ESP32 firmware and publishes hub.bin + firmware.json (version, MD5, size, model) as a release.
+# The app's Firmware screen reads these. Runs when the firmware changes, or by hand.
+on:
+  push:
+    branches: [main]
+    paths:
+      - esp32_hub/firmware/hub/**
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: firmware-release
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install core and libraries
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@3.3.12
+          arduino-cli lib install "Adafruit GFX Library" "Adafruit ST7735 and ST7789 Library" "Adafruit BusIO" ArduinoJson PubSubClient NimBLE-Arduino
+      - name: Read version
+        id: ver
+        run: echo "v=$(grep -m1 '#define FW_VERSION' esp32_hub/firmware/hub/hub.ino | sed 's/.*"\(.*\)".*/\1/')" >> "$GITHUB_OUTPUT"
+      - name: Compile
+        run: |
+          cd esp32_hub/firmware
+          arduino-cli compile --fqbn esp32:esp32:esp32:PartitionScheme=min_spiffs --export-binaries hub
+      - name: Manifest
+        run: |
+          cd esp32_hub/firmware/hub/build/esp32.esp32.esp32
+          cp hub.ino.bin "esp32-hub-fw-${{ steps.ver.outputs.v }}.bin"
+          md5=$(md5sum hub.ino.bin | cut -d' ' -f1)
+          size=$(stat -c %s hub.ino.bin)
+          printf '{"version":"%s","md5":"%s","size":%s,"model":"esp32-hub","minApi":1,"file":"esp32-hub-fw-%s.bin"}' "${{ steps.ver.outputs.v }}" "$md5" "$size" "${{ steps.ver.outputs.v }}" > firmware.json
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: fw-${{ steps.ver.outputs.v }}
+          name: Firmware ${{ steps.ver.outputs.v }}
+          generate_release_notes: true
+          files: |
+            esp32_hub/firmware/hub/build/esp32.esp32.esp32/esp32-hub-fw-${{ steps.ver.outputs.v }}.bin
+            esp32_hub/firmware/hub/build/esp32.esp32.esp32/firmware.json

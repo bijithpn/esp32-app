@@ -1,22 +1,67 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
-/// Design tokens. Neutral graphite surfaces, white primary actions, one calm blue for links and selection.
-/// Colour is only used to mean something: green = fine, amber = needs attention, red = problem.
+// ============================================================================================ design tokens
+// One restrained graphite palette. Colour only ever means something: green = fine, amber = needs attention,
+// red = problem, blue = the selected / interactive thing. Primary actions are plain off-white.
+// A light theme is not offered: every screen and the previews of the Hub's dark display are tuned for this palette,
+// and a half-converted light theme would look worse than none.
+
 class HubColors {
-  static const bg = Color(0xFF0E0F11);
-  static const surface = Color(0xFF16181B);
-  static const surface2 = Color(0xFF1E2126);
-  static const line = Color(0xFF2B2F36);
-  static const text = Color(0xFFEDEEF0);
-  static const muted = Color(0xFF8D939C);
-  static const accent = Color(0xFF8DB4FF);
+  static const bg = Color(0xFF101113);
+  static const surface = Color(0xFF191B1E);
+  static const surface2 = Color(0xFF22252A);
+  static const line = Color(0xFF30343A);
+  static const text = Color(0xFFF5F5F3);
+  static const muted = Color(0xFFA2A5AA);
+  static const accent = Color(0xFF8CAEFF);
   static const pink = Color(0xFFE58AAE);
-  static const ok = Color(0xFF5CC995);
-  static const warn = Color(0xFFE6A63C);
-  static const danger = Color(0xFFEB6A63);
+  static const ok = Color(0xFF77C99A);
+  static const warn = Color(0xFFE9B96E);
+  static const danger = Color(0xFFE77D7D);
+  static const onPrimary = Color(0xFF111214);
   static const screen = Color(0xFF040610); // the colour of the TFT background
+}
+
+/// 4-point spacing scale (the layout uses 8-point steps; 4 is for tight pairs).
+class Sp {
+  static const x1 = 4.0, x2 = 8.0, x3 = 12.0, x4 = 16.0, x6 = 24.0, x8 = 32.0, x10 = 40.0;
+  static const page = EdgeInsets.fromLTRB(16, 8, 16, 32);
+}
+
+/// Corner radii: 12 for controls, 16 for cards, 24 for large surfaces.
+class Rad {
+  static const control = 12.0, card = 16.0, large = 24.0;
+}
+
+/// Motion system. Button feedback 130 ms, small state changes 190 ms, cards 260 ms, screens 300 ms.
+class Motion {
+  static const fast = Duration(milliseconds: 130);
+  static const small = Duration(milliseconds: 190);
+  static const card = Duration(milliseconds: 260);
+  static const screen = Duration(milliseconds: 300);
+  static const curve = Curves.easeOutCubic;
+  static const curveIn = Curves.easeInCubic;
+}
+
+/// True when the user asked Android to reduce motion (Settings > Accessibility > Remove animations).
+bool reducedMotion(BuildContext context) => MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+
+/// Duration that collapses to zero when the user prefers reduced motion.
+Duration motion(BuildContext context, Duration d) => reducedMotion(context) ? Duration.zero : d;
+
+/// Type scale: 32 page heading, 22 section, 17 card title, 15 body, 13 secondary, 12 metadata. Weights 400/500/600/700 only.
+class Ty {
+  static const h1 = TextStyle(fontSize: 32, fontWeight: FontWeight.w700, letterSpacing: -0.8, height: 1.12);
+  static const h2 = TextStyle(fontSize: 22, fontWeight: FontWeight.w600, letterSpacing: -0.4, height: 1.2);
+  static const title = TextStyle(fontSize: 17, fontWeight: FontWeight.w600, letterSpacing: -0.2, height: 1.25);
+  static const body = TextStyle(fontSize: 15, fontWeight: FontWeight.w400, height: 1.4);
+  static const bodyStrong = TextStyle(fontSize: 15, fontWeight: FontWeight.w500, height: 1.4);
+  static const secondary = TextStyle(fontSize: 13, fontWeight: FontWeight.w400, color: HubColors.muted, height: 1.4);
+  static const meta = TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: HubColors.muted, letterSpacing: 0.2, height: 1.3);
+  static const mono = TextStyle(fontSize: 13, fontFamily: 'monospace', height: 1.4);
 }
 
 ThemeData buildHubTheme() {
@@ -31,8 +76,8 @@ ThemeData buildHubTheme() {
     outline: HubColors.line,
   );
   final base = ThemeData(useMaterial3: true, colorScheme: cs, brightness: Brightness.dark);
-  final r12 = RoundedRectangleBorder(borderRadius: BorderRadius.circular(12));
-  OutlineInputBorder border(Color c, [double w = 1]) => OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: c, width: w));
+  final r12 = RoundedRectangleBorder(borderRadius: BorderRadius.circular(Rad.control));
+  OutlineInputBorder border(Color c, [double w = 1]) => OutlineInputBorder(borderRadius: BorderRadius.circular(Rad.control), borderSide: BorderSide(color: c, width: w));
   return base.copyWith(
     scaffoldBackgroundColor: HubColors.bg,
     splashFactory: InkRipple.splashFactory,
@@ -41,23 +86,24 @@ ThemeData buildHubTheme() {
       elevation: 0,
       scrolledUnderElevation: 0,
       centerTitle: false,
-      titleTextStyle: TextStyle(color: HubColors.text, fontSize: 19, fontWeight: FontWeight.w600),
+      systemOverlayStyle: SystemUiOverlayStyle(statusBarColor: Colors.transparent, statusBarIconBrightness: Brightness.light, systemNavigationBarColor: HubColors.bg),
+      titleTextStyle: TextStyle(color: HubColors.text, fontSize: 19, fontWeight: FontWeight.w600, letterSpacing: -0.3),
     ),
     textTheme: base.textTheme.apply(bodyColor: HubColors.text, displayColor: HubColors.text),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
         backgroundColor: HubColors.text,
-        foregroundColor: HubColors.bg,
+        foregroundColor: HubColors.onPrimary,
         disabledBackgroundColor: HubColors.surface2,
         disabledForegroundColor: HubColors.muted,
-        minimumSize: const Size(0, 50),
+        minimumSize: const Size(0, 52),
         shape: r12,
         textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
-        minimumSize: const Size(0, 50),
+        minimumSize: const Size(0, 52),
         side: const BorderSide(color: HubColors.line),
         foregroundColor: HubColors.text,
         shape: r12,
@@ -81,7 +127,7 @@ ThemeData buildHubTheme() {
       color: HubColors.surface,
       elevation: 0,
       margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: HubColors.line)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Rad.card), side: const BorderSide(color: HubColors.line)),
     ),
     chipTheme: ChipThemeData(
       backgroundColor: HubColors.surface,
@@ -95,19 +141,20 @@ ThemeData buildHubTheme() {
     dialogTheme: DialogThemeData(
       backgroundColor: HubColors.surface,
       surfaceTintColor: Colors.transparent,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Rad.large)),
       titleTextStyle: const TextStyle(color: HubColors.text, fontSize: 19, fontWeight: FontWeight.w600),
     ),
     popupMenuTheme: PopupMenuThemeData(color: HubColors.surface2, surfaceTintColor: Colors.transparent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
-    bottomSheetTheme: const BottomSheetThemeData(backgroundColor: HubColors.surface, surfaceTintColor: Colors.transparent),
+    bottomSheetTheme: const BottomSheetThemeData(backgroundColor: HubColors.surface, surfaceTintColor: Colors.transparent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(Rad.large)))),
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
       backgroundColor: HubColors.surface2,
       contentTextStyle: const TextStyle(color: HubColors.text),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Rad.control)),
     ),
     progressIndicatorTheme: const ProgressIndicatorThemeData(color: HubColors.text, linearTrackColor: HubColors.line),
     dividerTheme: const DividerThemeData(color: HubColors.line, space: 1, thickness: 1),
+    sliderTheme: const SliderThemeData(activeTrackColor: HubColors.text, inactiveTrackColor: HubColors.line, thumbColor: HubColors.text, overlayColor: Color(0x1FF5F5F3)),
     switchTheme: SwitchThemeData(
       thumbColor: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.selected) ? HubColors.bg : HubColors.muted),
       trackColor: WidgetStateProperty.resolveWith((s) => s.contains(WidgetState.selected) ? HubColors.ok : HubColors.surface2),
@@ -116,26 +163,75 @@ ThemeData buildHubTheme() {
   );
 }
 
-// ------------------------------------------------------------------------------------------ widgets
+// ============================================================================================ components
+
+/// Screen transition: a short fade with a small upward slide. Instant when the user prefers reduced motion.
+Route<T> hubRoute<T>(Widget page) => PageRouteBuilder<T>(
+      transitionDuration: Motion.screen,
+      reverseTransitionDuration: Motion.card,
+      pageBuilder: (_, __, ___) => page,
+      transitionsBuilder: (context, anim, sec, child) {
+        if (reducedMotion(context)) return child;
+        final curved = CurvedAnimation(parent: anim, curve: Motion.curve, reverseCurve: Motion.curveIn);
+        return FadeTransition(
+          opacity: curved,
+          child: SlideTransition(position: Tween(begin: const Offset(0, 0.025), end: Offset.zero).animate(curved), child: child),
+        );
+      },
+    );
+
+/// Quick toast with the app's styling.
+void toast(BuildContext context, String message) {
+  final m = ScaffoldMessenger.maybeOf(context);
+  if (m == null) return;
+  m
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(content: Text(message)));
+}
+
+/// Gives a tappable surface a small press-in scale (130 ms), the same everywhere.
+class Pressable extends StatefulWidget {
+  const Pressable({super.key, required this.child, this.onTap, this.onLongPress, this.scale = 0.97});
+  final Widget child;
+  final VoidCallback? onTap, onLongPress;
+  final double scale;
+  @override
+  State<Pressable> createState() => _PressableState();
+}
+
+class _PressableState extends State<Pressable> {
+  bool _down = false;
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: widget.onTap == null ? null : (_) => setState(() => _down = true),
+        onTapUp: (_) => setState(() => _down = false),
+        onTapCancel: () => setState(() => _down = false),
+        onTap: widget.onTap,
+        onLongPress: widget.onLongPress,
+        child: AnimatedScale(scale: _down && !reducedMotion(context) ? widget.scale : 1, duration: Motion.fast, curve: Motion.curve, child: widget.child),
+      );
+}
 
 /// A flat rounded surface with a hairline border.
 class Panel extends StatelessWidget {
-  const Panel({super.key, required this.child, this.padding = const EdgeInsets.all(16), this.color, this.onTap, this.borderColor});
+  const Panel({super.key, required this.child, this.padding = const EdgeInsets.all(16), this.color, this.onTap, this.borderColor, this.radius = Rad.card});
   final Widget child;
   final EdgeInsets padding;
   final Color? color;
   final Color? borderColor;
   final VoidCallback? onTap;
+  final double radius;
   @override
   Widget build(BuildContext context) => Material(
         color: color ?? HubColors.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: borderColor ?? HubColors.line)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(radius), side: BorderSide(color: borderColor ?? HubColors.line)),
         clipBehavior: Clip.antiAlias,
         child: InkWell(onTap: onTap, child: Padding(padding: padding, child: child)),
       );
 }
 
-/// Rows in one bordered block, separated by hairlines (the iOS "inset grouped" pattern).
+/// Rows in one bordered block, separated by hairlines (the "inset grouped" pattern).
 class Group extends StatelessWidget {
   const Group({super.key, required this.children});
   final List<Widget> children;
@@ -169,8 +265,8 @@ class Row2 extends StatelessWidget {
             if (icon != null) ...[Icon(icon, size: 22, color: iconColor ?? HubColors.muted), const SizedBox(width: 14)],
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(title, style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: titleColor)),
-                if (sub != null) ...[const SizedBox(height: 2), Text(sub!, style: const TextStyle(color: HubColors.muted, fontSize: 13.5, height: 1.3))],
+                Text(title, style: Ty.bodyStrong.copyWith(color: titleColor)),
+                if (sub != null) ...[const SizedBox(height: 2), Text(sub!, style: Ty.secondary)],
               ]),
             ),
             if (trailing != null) ...[const SizedBox(width: 12), trailing!],
@@ -179,16 +275,19 @@ class Row2 extends StatelessWidget {
       );
 }
 
+const chevron = Icon(Icons.chevron_right_rounded, color: HubColors.muted);
+
 class SectionTitle extends StatelessWidget {
-  const SectionTitle(this.title, {super.key, this.trailing});
+  const SectionTitle(this.title, {super.key, this.trailing, this.top = 28});
   final String title;
   final Widget? trailing;
+  final double top;
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(2, 28, 2, 10),
+        padding: EdgeInsets.fromLTRB(2, top, 2, 10),
         child: Row(children: [
-          Expanded(child: Text(title, style: const TextStyle(color: HubColors.text, fontSize: 17, fontWeight: FontWeight.w600))),
-          if (trailing != null) trailing!,
+          Expanded(child: Semantics(header: true, child: Text(title, style: Ty.title))),
+          ?trailing,
         ]),
       );
 }
@@ -219,7 +318,17 @@ class _Pulse extends StatefulWidget {
 }
 
 class _PulseState extends State<_Pulse> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat(reverse: true);
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (reducedMotion(context)) {
+      _c.stop();
+    } else if (!_c.isAnimating) {
+      _c.repeat(reverse: true);
+    }
+  }
+
   @override
   void dispose() {
     _c.dispose();
@@ -229,19 +338,40 @@ class _PulseState extends State<_Pulse> with SingleTickerProviderStateMixin {
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
         animation: _c,
-        builder: (_, __) => Container(width: 7, height: 7, decoration: BoxDecoration(color: widget.color.withValues(alpha: 0.35 + 0.65 * _c.value), shape: BoxShape.circle)),
+        builder: (_, __) => Container(width: 7, height: 7, decoration: BoxDecoration(color: widget.color.withValues(alpha: 0.35 + 0.65 * (reducedMotion(context) ? 1 : _c.value)), shape: BoxShape.circle)),
+      );
+}
+
+/// Wi-Fi strength as four bars.
+class SignalBars extends StatelessWidget {
+  const SignalBars({super.key, required this.bars, this.color = HubColors.muted});
+  final int bars;
+  final Color color;
+  @override
+  Widget build(BuildContext context) => Semantics(
+        label: 'Signal $bars of 4',
+        child: SizedBox(
+          width: 20,
+          height: 16,
+          child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            for (var i = 0; i < 4; i++) ...[
+              Container(width: 3.5, height: 4.0 + i * 3.6, decoration: BoxDecoration(color: i < bars ? color : HubColors.line, borderRadius: BorderRadius.circular(1))),
+              if (i < 3) const SizedBox(width: 1.5),
+            ],
+          ]),
+        ),
       );
 }
 
 /// The board's screen, drawn as a plain bezel. Everything inside is painted at the real 160x128 proportions.
 class DisplayFrame extends StatelessWidget {
-  const DisplayFrame({super.key, required this.child, this.radius = 12});
+  const DisplayFrame({super.key, required this.child, this.radius = 10});
   final Widget child;
   final double radius;
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(5),
-        decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(radius + 5), border: Border.all(color: HubColors.line)),
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(color: Colors.black, borderRadius: BorderRadius.circular(radius + 6), border: Border.all(color: HubColors.line)),
         child: ClipRRect(borderRadius: BorderRadius.circular(radius), child: AspectRatio(aspectRatio: 160 / 128, child: child)),
       );
 }
@@ -252,10 +382,73 @@ class Hint extends StatelessWidget {
   final String text;
   final Color? color;
   @override
-  Widget build(BuildContext context) => Text(text, style: TextStyle(color: color ?? HubColors.muted, fontSize: 14, height: 1.45));
+  Widget build(BuildContext context) => Text(text, style: Ty.secondary.copyWith(fontSize: 14, color: color ?? HubColors.muted));
 }
 
-/// Runs a painter against a clock (seconds) so previews animate like the real screen.
+/// Loading / empty / error with an action. Every list and every network-backed screen uses one of these instead of a bare spinner or a raw exception.
+class StateView extends StatelessWidget {
+  const StateView({super.key, required this.icon, required this.title, this.message, this.actionLabel, this.onAction, this.loading = false, this.color});
+  final IconData icon;
+  final String title;
+  final String? message, actionLabel;
+  final VoidCallback? onAction;
+  final bool loading;
+  final Color? color;
+
+  factory StateView.loading(String title, {String? message}) => StateView(icon: Icons.hourglass_empty_rounded, title: title, message: message, loading: true);
+  factory StateView.error(String message, {VoidCallback? onRetry, String title = 'Something went wrong'}) =>
+      StateView(icon: Icons.error_outline_rounded, title: title, message: message, actionLabel: onRetry == null ? null : 'Try again', onAction: onRetry, color: HubColors.danger);
+  factory StateView.empty(String title, {String? message, String? actionLabel, VoidCallback? onAction, IconData icon = Icons.inbox_outlined}) =>
+      StateView(icon: icon, title: title, message: message, actionLabel: actionLabel, onAction: onAction);
+
+  @override
+  Widget build(BuildContext context) => Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            if (loading)
+              const SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2.5))
+            else
+              Icon(icon, size: 36, color: color ?? HubColors.muted),
+            const SizedBox(height: 16),
+            Text(title, textAlign: TextAlign.center, style: Ty.title),
+            if (message != null) ...[const SizedBox(height: 6), Text(message!, textAlign: TextAlign.center, style: Ty.secondary.copyWith(fontSize: 14))],
+            if (actionLabel != null) ...[const SizedBox(height: 20), FilledButton(onPressed: onAction, child: Text(actionLabel!))],
+          ]),
+        ),
+      );
+}
+
+/// A bordered select-style option, used for moods, scenes and presets: the selected one gets a bright outline.
+class Choice extends StatelessWidget {
+  const Choice({super.key, required this.selected, required this.onTap, required this.child, this.padding = const EdgeInsets.all(12), this.radius = Rad.card});
+  final bool selected;
+  final VoidCallback? onTap;
+  final Widget child;
+  final EdgeInsets padding;
+  final double radius;
+  @override
+  Widget build(BuildContext context) => Semantics(
+        button: true,
+        selected: selected,
+        child: Pressable(
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: motion(context, Motion.small),
+            curve: Motion.curve,
+            padding: padding,
+            decoration: BoxDecoration(
+              color: selected ? HubColors.surface2 : HubColors.surface,
+              borderRadius: BorderRadius.circular(radius),
+              border: Border.all(color: selected ? HubColors.text.withValues(alpha: 0.7) : HubColors.line, width: selected ? 1.4 : 1),
+            ),
+            child: child,
+          ),
+        ),
+      );
+}
+
+/// Runs a painter against a clock (seconds) so previews animate like the real screen. Holds still for reduced motion.
 class Live extends StatefulWidget {
   const Live({super.key, required this.paint});
   final void Function(Canvas canvas, Size size, double t) paint;
@@ -264,7 +457,18 @@ class Live extends StatefulWidget {
 }
 
 class _LiveState extends State<Live> with SingleTickerProviderStateMixin {
-  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(seconds: 3600))..repeat();
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(seconds: 3600));
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (reducedMotion(context)) {
+      _c.value = 0.0002; // one calm frame
+      _c.stop();
+    } else if (!_c.isAnimating) {
+      _c.repeat();
+    }
+  }
+
   @override
   void dispose() {
     _c.dispose();
@@ -272,9 +476,11 @@ class _LiveState extends State<Live> with SingleTickerProviderStateMixin {
   }
 
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-        animation: _c,
-        builder: (_, __) => CustomPaint(painter: _FnPainter(widget.paint, _c.value * 3600), size: Size.infinite),
+  Widget build(BuildContext context) => RepaintBoundary(
+        child: AnimatedBuilder(
+          animation: _c,
+          builder: (_, __) => CustomPaint(painter: _FnPainter(widget.paint, _c.value * 3600), size: Size.infinite),
+        ),
       );
 }
 
