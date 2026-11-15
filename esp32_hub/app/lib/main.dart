@@ -191,6 +191,34 @@ class _StartPageState extends State<StartPage> {
     return null;
   }
 
+  /// Joins the board's hotspot from inside the app (Android keeps this connection; a Wi-Fi joined in Android's settings
+  /// tends to get dropped again), then opens setup for a new board or connects to one that is already online.
+  Future<void> _joinHotspot({String ssid = 'ESP32-Hub', String pass = 'hub12345'}) async {
+    setState(() { _phase = _Phase.searching; _status = 'Joining the board\'s Wi-Fi…'; });
+    final ok = await PhoneBridge.joinWifi(ssid, pass);
+    if (!mounted) return;
+    if (!ok) {
+      setState(() => _phase = _Phase.notFound);
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not join "$ssid". Is the board in pairing mode (hold its BOOT button for 2 seconds)? The password is $pass.')));
+      return;
+    }
+    _skipAp = false;
+    setState(() => _status = 'Connected to the board\'s Wi-Fi. Opening…');
+    final f = await _waitForHotspotBoard();
+    if (!mounted) return;
+    if (f == null) {
+      setState(() => _phase = _Phase.notFound);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Joined the board\'s Wi-Fi, but it did not answer. Wait a few seconds and tap Search again.')));
+      return;
+    }
+    final p = await SharedPreferences.getInstance();
+    if (f.ap) {
+      await _setupBoard(f, p); // a new board: give it the home Wi-Fi
+    } else if (!await _connectTo(f, p) && mounted) {
+      setState(() => _phase = _Phase.notFound);
+    }
+  }
+
   Future<void> _scanQr() async {
     FocusScope.of(context).unfocus();
     final v = await Navigator.of(context).push<String>(MaterialPageRoute(builder: (_) => const QrScanPage()));
@@ -199,23 +227,7 @@ class _StartPageState extends State<StartPage> {
     if (wifi != null) {
       // The setup screen's QR: join the board's hotspot, then the normal search finds it and asks for the home Wi-Fi.
       setState(() { _phase = _Phase.searching; _status = 'Joining the board\'s Wi-Fi…'; });
-      final ok = await PhoneBridge.joinWifi(wifi.ssid, wifi.pass);
-      if (!mounted) return;
-      if (ok) {
-        _skipAp = false;
-        setState(() => _status = 'Connected to the board\'s Wi-Fi. Opening setup…');
-        final f = await _waitForHotspotBoard();
-        if (!mounted) return;
-        if (f != null) {
-          await _setupBoard(f, await SharedPreferences.getInstance());
-        } else {
-          setState(() => _phase = _Phase.notFound);
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Joined the board\'s Wi-Fi, but it did not answer. Wait a few seconds and tap Search again.')));
-        }
-      } else {
-        setState(() => _phase = _Phase.notFound);
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not join automatically. Join "${wifi.ssid}" (password ${wifi.pass}) in your phone\'s Wi-Fi settings, then tap Search again.')));
-      }
+      await _joinHotspot(ssid: wifi.ssid, pass: wifi.pass);
       return;
     }
     final info = PairInfo.parse(v);
@@ -254,6 +266,7 @@ class _StartPageState extends State<StartPage> {
                   FilledButton.icon(onPressed: _auto, icon: const Icon(Icons.refresh_rounded), label: const Text('Search again')),
                   const SizedBox(height: 20),
                   Group(children: [
+                    Row2(icon: Icons.wifi_tethering_rounded, title: 'Join the board\'s own Wi-Fi', sub: 'Pairing mode: hold BOOT on the board for 2 seconds', trailing: const Icon(Icons.chevron_right_rounded, color: HubColors.muted), onTap: _joinHotspot),
                     Row2(icon: Icons.qr_code_scanner_rounded, title: 'Scan the board\'s QR code', sub: 'From its "Pair (QR)" screen', trailing: const Icon(Icons.chevron_right_rounded, color: HubColors.muted), onTap: _scanQr),
                     Row2(
                       icon: Icons.tune_rounded,

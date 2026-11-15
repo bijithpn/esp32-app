@@ -10,6 +10,7 @@
 #include <SPI.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
+#include <DNSServer.h>
 #include <WebServer.h>
 #include <ESPmDNS.h>
 #include <Preferences.h>
@@ -24,7 +25,7 @@
 #include "esp_bt.h"
 #include "qrcode_lib.h"   // vendored copy of the MIT-licensed "QRCode" library (ESP-IDF ships a different qrcode.h)
 
-#define FW_VERSION "0.5.0"
+#define FW_VERSION "0.5.1"
 #define TFT_CS 15
 #define TFT_DC 2
 #define TFT_RST 4
@@ -43,6 +44,8 @@ WebServer server(80);
 
 long tzSec = 19800;           // default IST (+5:30); change with {"cmd":"tz","sec":...}
 bool apMode = false;
+DNSServer dnsServer;          // answers every name with the board, so phones can run their "is there internet" check against it
+bool dnsOn = false;
 bool hotspotOn = false;       // "pairing mode": the ESP32-Hub hotspot is up while the board stays on the home Wi-Fi
 uint32_t hotspotUntil = 0;
 String msgText = "Hello!";    // shown by the "message" scene
@@ -356,6 +359,7 @@ void wifiKeepAlive() {
   lastChk = now;
   if (hotspotOn && (int32_t)(now - hotspotUntil) > 0) {                         // pairing mode over
     hotspotOn = false;
+    if (dnsOn) { dnsServer.stop(); dnsOn = false; }
     WiFi.softAPdisconnect(true);
     WiFi.mode(WIFI_STA);
     Serial.println("[wifi] pairing mode ended");
@@ -418,8 +422,9 @@ void startHotspot() {
   hotspotUntil = millis() + 600000;
   if (WiFi.getMode() != WIFI_AP_STA) WiFi.mode(WIFI_AP_STA);
   int ch = WiFi.status() == WL_CONNECTED ? WiFi.channel() : 6;
-  bool ok = WiFi.softAP(AP_SSID, AP_PASS, ch ? ch : 6);
+  bool ok = WiFi.softAP(AP_SSID, AP_PASS, ch ? ch : 6, 0, 4);
   Serial.printf("[wifi] pairing mode: hotspot %s on channel %d\n", ok ? "up" : "FAILED", ch);
+  if (!dnsOn) { dnsServer.start(53, "*", WiFi.softAPIP()); dnsOn = true; }
   infoUntil = 0; msgUntil = 0;
   switchScene(findScene("info"), JsonVariantConst(), false);   // shows the Wi-Fi QR
 }
@@ -427,12 +432,13 @@ void startHotspot() {
 void startAP() {
   apMode = true;
   WiFi.mode(WIFI_AP_STA);
-  bool ok = WiFi.softAP(AP_SSID, AP_PASS, 6);
+  bool ok = WiFi.softAP(AP_SSID, AP_PASS, 6, 0, 4);
   Serial.printf("[wifi] softAP %s ssid=%s ip=%s heap=%u\n", ok ? "ok" : "FAILED", AP_SSID, WiFi.softAPIP().toString().c_str(), ESP.getFreeHeap());
   // A STA that keeps retrying a saved network makes the radio hop channels, and then the hotspot is barely visible
   // ("Wi-Fi not available" when scanning its QR). Stop the constant retries; wifiKeepAlive tries again briefly now and then.
   WiFi.setAutoReconnect(false);
   WiFi.disconnect(false);
+  if (!dnsOn) { dnsServer.start(53, "*", WiFi.softAPIP()); dnsOn = true; }
   WiFi.scanNetworks(true);   // async, used for the setup page list
 }
 
@@ -505,7 +511,15 @@ void setup() {
 
   server.on("/", HTTP_GET, [] { server.send_P(200, "text/html", PAGE_HTML); });
   server.on("/api/scan", HTTP_GET, apiScan);
-  // Any unknown URL (phones probing for a captive portal, typos...) goes to the setup page
+  // Phones test "is this Wi-Fi online?" by asking a well-known page. Answering like a normal online network (204 / "Success")
+  // keeps Android and iOS connected to the hotspot; a redirect made them treat it as a broken sign-in network and switch away.
+  server.on("/generate_204", HTTP_GET, [] { server.send(204, "text/plain", ""); });
+  server.on("/gen_204", HTTP_GET, [] { server.send(204, "text/plain", ""); });
+  server.on("/hotspot-detect.html", HTTP_GET, [] { server.send(200, "text/html", "<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>"); });
+  server.on("/library/test/success.html", HTTP_GET, [] { server.send(200, "text/html", "<HTML><HEAD><TITLE>Success</TITLE></HEAD><BODY>Success</BODY></HTML>"); });
+  server.on("/ncsi.txt", HTTP_GET, [] { server.send(200, "text/plain", "Microsoft NCSI"); });
+  server.on("/connecttest.txt", HTTP_GET, [] { server.send(200, "text/plain", "Microsoft Connect Test"); });
+  // Any other unknown URL (typos...) goes to the setup page
   server.onNotFound([] {
     server.sendHeader("Location", String("http://") + (apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString()) + "/");
     server.send(302, "text/plain", "");
@@ -563,6 +577,7 @@ void serialConsole() {
 
 void loop() {
   serialConsole();
+  if (dnsOn) dnsServer.processNextRequest();
   {                                                // hold the BOOT button for 1.5 s: pairing mode (hotspot + Wi-Fi QR)
     static uint32_t downAt = 0;
     if (digitalRead(0) == LOW) { if (!downAt) downAt = millis(); else if (millis() - downAt > 1500 && !hotspotOn && !apMode) { downAt = 0xFFFFFFFF - 5000; startHotspot(); } }

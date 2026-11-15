@@ -131,6 +131,21 @@ class _ManualConnectPageState extends State<ManualConnectPage> {
     }
   }
 
+  /// Joins the board's hotspot from inside the app and connects to 192.168.4.1 (Android keeps a Wi-Fi joined this way).
+  Future<void> _joinHotspot() async {
+    FocusScope.of(context).unfocus();
+    setState(() { _busy = true; _error = null; });
+    final ok = await PhoneBridge.joinWifi('ESP32-Hub', 'hub12345');
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (!ok) {
+      setState(() => _error = 'Could not join "ESP32-Hub". Put the board in pairing mode first: hold its BOOT button for 2 seconds (or app menu > Pairing mode).');
+      return;
+    }
+    setState(() { _host.text = '192.168.4.1'; _remote = false; });
+    await _connectLocal();
+  }
+
   Future<void> _scan() async {
     final v = await Navigator.of(context).push<String>(MaterialPageRoute(builder: (_) => const QrScanPage()));
     final wifi = v == null ? null : HubWifiQr.parse(v);
@@ -199,6 +214,13 @@ class _ManualConnectPageState extends State<ManualConnectPage> {
                     ),
                     const SizedBox(height: 16),
                     Group(children: [
+                      Row2(
+                        icon: Icons.wifi_tethering_rounded,
+                        title: 'Join the board\'s own Wi-Fi',
+                        sub: 'Pairing mode: hold BOOT on the board for 2 seconds',
+                        trailing: const Icon(Icons.chevron_right_rounded, color: HubColors.muted),
+                        onTap: _busy ? null : _joinHotspot,
+                      ),
                       Row2(
                         icon: Icons.qr_code_scanner_rounded,
                         title: 'Scan pairing QR',
