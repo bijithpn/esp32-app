@@ -160,24 +160,27 @@ class _WeatherPageState extends State<WeatherPage> {
         appBar: AppBar(title: const Text('Weather')),
         body: _pad([
           const DisplayFrame(child: WeatherScreen()),
-          const SizedBox(height: 16),
+          const SizedBox(height: 18),
           FilledButton.icon(
             onPressed: () async {
               final ok = await PhoneSync.sendLocation(widget.api);
-              if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ok ? 'Weather set to your location' : 'Allow location first (Phone magic on the home screen)')));
+              if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ok ? 'Weather set to your location' : 'Allow location first: Home > From your phone > Manage')));
             },
             icon: const Icon(Icons.my_location_rounded),
             label: const Text('Use my location'),
           ),
-          const SizedBox(height: 16),
-          const Text('Or pick a city. The board fetches weather from Open-Meteo (no key needed) every 10 minutes.'),
+          const SizedBox(height: 22),
+          const Text('Pick a city', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 6),
+          const Hint('The board gets the weather from Open-Meteo (no key needed) every 10 minutes.'),
           const SizedBox(height: 12),
           Wrap(spacing: 8, runSpacing: 8, children: [
             for (final e in cities.entries)
               ActionChip(label: Text(e.key), onPressed: () => _set(e.value[0], e.value[1])),
           ]),
-          const SizedBox(height: 20),
-          Text('Custom location', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 24),
+          const Text('Custom location', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 10),
           Row(children: [
             Expanded(child: TextField(controller: _lat, keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true), decoration: const InputDecoration(labelText: 'Latitude'))),
             const SizedBox(width: 12),

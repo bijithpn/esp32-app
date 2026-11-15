@@ -2,6 +2,8 @@ package com.esp32hub.esp32_hub_app
 
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.location.LocationManager
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
@@ -18,6 +20,12 @@ class MainActivity : FlutterActivity() {
                     "isGranted" -> {
                         val enabled = Settings.Secure.getString(contentResolver, "enabled_notification_listeners") ?: ""
                         result.success(enabled.contains(packageName))
+                    }
+                    // Pin this app to a Wi-Fi that has no internet (the board's hotspot), otherwise Android sends our traffic over mobile data.
+                    "bindWifi" -> result.success(bindWifiWithoutInternet())
+                    "openBluetooth" -> {
+                        startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        result.success(null)
                     }
                     "openSettings" -> {
                         startActivity(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS")
@@ -51,6 +59,23 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun bindWifiWithoutInternet(): Boolean {
+        return try {
+            val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+            for (n in cm.allNetworks) {
+                val c = cm.getNetworkCapabilities(n) ?: continue
+                if (c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) && !c.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                    return cm.bindProcessToNetwork(n)
+                }
+            }
+            cm.bindProcessToNetwork(null)   // normal Wi-Fi with internet (or none): let Android route as usual
+            false
+        } catch (_: Exception) {
+            false
+        }
     }
 
     @SuppressLint("MissingPermission")

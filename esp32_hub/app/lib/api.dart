@@ -103,8 +103,32 @@ class HttpApi extends Api {
 
   @override
   Future<void> wifi(String ssid, String pass) async {
+    await wifiSet(ssid, pass);
+  }
+
+  /// Asks the board to join a network. A board running firmware 0.4.1+ in setup mode answers {"state":"connecting"} and
+  /// keeps its hotspot up, so [wifiStatus] can be polled. Older firmware replies with a web page and reboots at once
+  /// (returned as {"state":"legacy"}).
+  Future<Map<String, dynamic>> wifiSet(String ssid, String pass) async {
     final r = await http.post(_u('/api/wifi'), headers: _headers, body: jsonEncode({'ssid': ssid, 'pass': pass})).timeout(_t);
     if (r.statusCode == 401) throw LockedException();
+    try {
+      final m = jsonDecode(r.body);
+      if (m is Map<String, dynamic>) return m;
+    } catch (_) {}
+    return {'ok': true, 'state': 'legacy'};
+  }
+
+  /// {"state": idle | connecting | ok | fail, "ssid", "ip", "reason"}
+  Future<Map<String, dynamic>> wifiStatus() async {
+    final r = await http.get(_u('/api/wifi/status')).timeout(const Duration(seconds: 4));
+    return jsonDecode(r.body) as Map<String, dynamic>;
+  }
+
+  /// Networks the board can see, strongest first (empty while it is still scanning).
+  Future<List<String>> scanNetworks() async {
+    final r = await http.get(_u('/api/scan')).timeout(const Duration(seconds: 5));
+    return (jsonDecode(r.body) as List).map((e) => '$e').toSet().toList();
   }
 }
 

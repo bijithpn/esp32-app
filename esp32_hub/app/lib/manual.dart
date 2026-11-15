@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'api.dart';
 import 'main.dart';
 import 'settings.dart';
+import 'theme.dart';
 
 // ---------------------------------------------------------------- CONNECT
 class ManualConnectPage extends StatefulWidget {
@@ -57,7 +58,7 @@ class _ManualConnectPageState extends State<ManualConnectPage> {
         ]),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, c.text.trim()), child: const Text('OK')),
+          TextButton(onPressed: () => Navigator.pop(ctx, c.text.trim()), child: const Text('OK')),
         ],
       ),
     );
@@ -139,7 +140,7 @@ class _ManualConnectPageState extends State<ManualConnectPage> {
         padding: const EdgeInsets.only(bottom: 10),
         child: TextField(
           controller: c, obscureText: obscure, keyboardType: type, autocorrect: false,
-          decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
+          decoration: InputDecoration(labelText: label),
         ),
       );
 
@@ -149,67 +150,81 @@ class _ManualConnectPageState extends State<ManualConnectPage> {
         body: SafeArea(
           child: Center(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 440),
                 child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                   SegmentedButton<bool>(
+                    showSelectedIcon: false,
+                    style: SegmentedButton.styleFrom(
+                      backgroundColor: HubColors.surface,
+                      selectedBackgroundColor: HubColors.surface2,
+                      selectedForegroundColor: HubColors.text,
+                      foregroundColor: HubColors.muted,
+                      side: const BorderSide(color: HubColors.line),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
                     segments: const [
-                      ButtonSegment(value: false, label: Text('Wi-Fi (local)'), icon: Icon(Icons.wifi)),
-                      ButtonSegment(value: true, label: Text('Remote (MQTT)'), icon: Icon(Icons.cloud)),
+                      ButtonSegment(value: false, label: Text('Wi-Fi'), icon: Icon(Icons.wifi_rounded)),
+                      ButtonSegment(value: true, label: Text('Internet (MQTT)'), icon: Icon(Icons.cloud_outlined)),
                     ],
                     selected: {_remote},
                     onSelectionChanged: (v) => setState(() { _remote = v.first; _error = null; }),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
                   if (!_remote) ...[
-                    _field(_host, 'Device IP address (shown on the display)', type: TextInputType.url),
+                    _field(_host, 'Board IP address (shown on its screen)', type: TextInputType.url),
                     _field(_token, 'Token (only if the board is locked)'),
-                    FilledButton.icon(
+                    const SizedBox(height: 4),
+                    FilledButton(
                       onPressed: _busy ? null : _connectLocal,
-                      icon: _busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.link),
-                      label: const Text('Connect'),
+                      child: _busy ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Connect'),
                     ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(onPressed: _busy ? null : _scan, icon: const Icon(Icons.qr_code_scanner), label: const Text('Scan pairing QR')),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: _busy ? null : () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BleSetupPage())),
-                      icon: const Icon(Icons.bluetooth),
-                      label: const Text('New board? Set up Wi-Fi with Bluetooth'),
-                    ),
+                    const SizedBox(height: 16),
+                    Group(children: [
+                      Row2(
+                        icon: Icons.qr_code_scanner_rounded,
+                        title: 'Scan pairing QR',
+                        trailing: const Icon(Icons.chevron_right_rounded, color: HubColors.muted),
+                        onTap: _busy ? null : () { FocusScope.of(context).unfocus(); _scan(); },
+                      ),
+                      Row2(
+                        icon: Icons.bluetooth_rounded,
+                        title: 'New board? Set up Wi-Fi with Bluetooth',
+                        trailing: const Icon(Icons.chevron_right_rounded, color: HubColors.muted),
+                        onTap: _busy ? null : () { FocusScope.of(context).unfocus(); Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BleSetupPage())); },
+                      ),
+                    ]),
                   ] else ...[
                     _field(_mHost, 'MQTT broker host'),
                     Row(children: [
                       Expanded(child: _field(_mPort, 'Port', type: TextInputType.number)),
                       const SizedBox(width: 10),
-                      Expanded(child: SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('TLS'), value: _mTls, onChanged: (v) => setState(() => _mTls = v))),
+                      Expanded(child: Padding(padding: const EdgeInsets.only(bottom: 10), child: Row(children: [
+                        const Expanded(child: Text('TLS', style: TextStyle(fontSize: 15))),
+                        Switch(value: _mTls, onChanged: (v) => setState(() => _mTls = v)),
+                      ]))),
                     ]),
                     _field(_mUser, 'Username (optional)'),
                     _field(_mPass, 'Password (optional)', obscure: true),
                     _field(_mId, 'Device ID (e.g. C224AC)'),
                     _field(_mToken, 'Device token'),
-                    FilledButton.icon(
+                    const SizedBox(height: 4),
+                    FilledButton(
                       onPressed: _busy ? null : _connectRemote,
-                      icon: _busy ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.cloud_done),
-                      label: const Text('Connect remotely'),
+                      child: _busy ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Connect over the internet'),
                     ),
                   ],
-                  if (_error != null) Padding(padding: const EdgeInsets.only(top: 16), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
-                  const SizedBox(height: 24),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Text(_remote
-                          ? 'Remote mode needs MQTT switched on in the board (connect locally first: Settings > Remote access). '
-                              'The device ID and token are in Settings and on the board\'s Pair (QR) scene.'
-                          : 'First time?\n'
-                              '1. Power the board. The screen shows "SETUP MODE".\n'
-                              '2. Easiest: tap "Set up Wi-Fi with Bluetooth" above. '
-                              'Or join the Wi-Fi  ESP32-Hub  (password hub12345), enter 192.168.4.1 here and use the menu > Wi-Fi setup.\n'
-                              '3. The display then shows its IP address. Enter it here.'),
-                    ),
-                  ),
+                  if (_error != null) Padding(padding: const EdgeInsets.only(top: 16), child: Hint(_error!, color: HubColors.danger)),
+                  const SizedBox(height: 28),
+                  Hint(_remote
+                      ? 'Internet mode needs MQTT switched on in the board (connect over Wi-Fi first: Settings > Remote access). '
+                          'The device ID and token are in Settings and on the board\'s Pair (QR) screen.'
+                      : 'First time?\n'
+                          '1. Power the board. If it has no Wi-Fi it shows SETUP.\n'
+                          '2. Easiest: tap "Set up Wi-Fi with Bluetooth" above. '
+                          'Or join the hotspot ESP32-Hub (password hub12345) on your phone, then open this app: it finds the board and asks for your Wi-Fi.\n'
+                          '3. The board then shows its IP address.'),
                 ]),
               ),
             ),
@@ -217,4 +232,3 @@ class _ManualConnectPageState extends State<ManualConnectPage> {
         ),
       );
 }
-

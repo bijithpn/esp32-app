@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import 'phone.dart';
+
 /// A board found on the network.
 class FoundBoard {
   FoundBoard({required this.host, required this.id, required this.fw, required this.ap, required this.lock});
@@ -44,6 +46,7 @@ class Discovery {
   /// Quick checks first (last known address, mDNS name, the board's own hotspot), then every address on the local
   /// network, 40 at a time. Reports each board as soon as it is found. `wantId` makes it stop at that board.
   static Stream<FoundBoard> scan({String? lastHost, String? wantId}) async* {
+    await PhoneBridge.bindWifi();   // a Wi-Fi without internet (the board's hotspot) must not lose to mobile data
     final seen = <String>{};
     Future<FoundBoard?> one(String h) async {
       if (!seen.add(h)) return null;

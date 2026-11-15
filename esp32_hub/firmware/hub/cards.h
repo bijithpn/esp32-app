@@ -145,7 +145,7 @@ void info_frame() {
         if (qrcode_getModule(&wifiQr, x, y)) cv.fillRect(ox + 4 + x * m, oy + 4 + y * m, m, m, 0);
     int rx = box + 6;                       // text column is 160-rx = ~60 px = 10 characters at size 1
     cv.setTextSize(1);
-    cv.setTextColor(rgb(60, 220, 255)); cv.setCursor(rx, 8); cv.print("SETUP");
+    cv.setTextColor(rgb(60, 220, 255)); cv.setCursor(rx, 8); cv.print(savedSsid.length() ? "NO WI-FI" : "SETUP");
     cv.setTextColor(rgb(255, 255, 255)); cv.setCursor(rx, 26); cv.print("1 Scan QR");
     cv.setTextColor(rgb(150, 160, 190)); cv.setCursor(rx, 36); cv.print("to join");
     cv.setTextColor(rgb(255, 214, 110)); cv.setCursor(rx, 46); cv.print("ESP32-Hub");

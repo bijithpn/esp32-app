@@ -22,6 +22,22 @@ class PhoneBridge {
     }
   }
 
+  /// If the phone is on a Wi-Fi that has no internet (such as the board's own hotspot) Android may send app traffic over
+  /// mobile data instead, and then 192.168.4.1 can never be reached. This pins the app to that Wi-Fi. Returns true if it did.
+  static Future<bool> bindWifi() async {
+    try {
+      return (await _ch.invokeMethod<bool>('bindWifi')) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> openBluetoothSettings() async {
+    try {
+      await _ch.invokeMethod('openBluetooth');
+    } catch (_) {}
+  }
+
   static Future<void> openSettings() async {
     try {
       await _ch.invokeMethod('openSettings');
@@ -188,10 +204,10 @@ class _PermissionsPageState extends State<PermissionsPage> with WidgetsBindingOb
         actions: [if (widget.firstRun) TextButton(onPressed: () => Navigator.pop(context), child: const Text('Skip'))],
       ),
       body: ListView(padding: const EdgeInsets.fromLTRB(20, 4, 20, 32), children: [
-        const Text('Let your board know what is happening on your phone.', style: TextStyle(color: HubColors.muted, fontSize: 15, height: 1.4)),
-        const SizedBox(height: 18),
+        const Hint('Let your board know what is happening on your phone. Each one is optional.'),
+        const SizedBox(height: 20),
         _Card(
-          icon: Icons.notifications_active_rounded,
+          icon: Icons.notifications_none_rounded,
           title: 'Notifications',
           text: 'Messages, calls and app alerts pop up on the display, each in its own colour.',
           preview: const NotifScreen(),
@@ -199,7 +215,10 @@ class _PermissionsPageState extends State<PermissionsPage> with WidgetsBindingOb
           action: _notif ? null : 'Allow notification access',
           onAction: PhoneBridge.openSettings,
           children: !_notif
-              ? [const _Hint('Android will open its list. Turn on "ESP32 Hub", then come back.')]
+              ? [
+                  const _Hint('Android opens its list: turn on "ESP32 Hub", then come back here.'),
+                  const _Restricted(),
+                ]
               : [
                   _Toggle('Show notifications', _mirror, (v) { setState(() => _mirror = v); _save(); }),
                   TextField(
@@ -223,9 +242,9 @@ class _PermissionsPageState extends State<PermissionsPage> with WidgetsBindingOb
                   ),
                 ],
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 14),
         _Card(
-          icon: Icons.music_note_rounded,
+          icon: Icons.music_note_outlined,
           title: 'Music',
           text: 'Play a song in any app and it appears on the display by itself, with art, progress and a live equaliser.',
           preview: const MusicScreen(),
@@ -233,12 +252,12 @@ class _PermissionsPageState extends State<PermissionsPage> with WidgetsBindingOb
           action: _notif ? null : 'Allow notification access',
           onAction: PhoneBridge.openSettings,
           children: !_notif
-              ? [const _Hint('Uses the same permission as notifications. Android only shows song details to apps with this access.')]
+              ? [const _Hint('Uses the same permission as notifications. Android only shows song details to apps with this access.'), const _Restricted()]
               : [_Toggle('Show the song that is playing', _media, (v) { setState(() => _media = v); _save(); })],
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 14),
         _Card(
-          icon: Icons.place_rounded,
+          icon: Icons.place_outlined,
           title: 'Weather where you are',
           text: 'The clock and weather use your location, so there is no city to pick. Only an approximate position is used and it is only sent to your board.',
           preview: const WeatherScreen(),
@@ -275,9 +294,9 @@ class _Card extends StatelessWidget {
           DisplayFrame(child: preview),
           const SizedBox(height: 16),
           Row(children: [
-            Icon(icon, color: granted ? HubColors.ok : HubColors.accent, size: 22),
+            Icon(icon, color: granted ? HubColors.ok : HubColors.muted, size: 22),
             const SizedBox(width: 10),
-            Expanded(child: Text(title, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w700))),
+            Expanded(child: Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600))),
             if (granted) const StatusPill(color: HubColors.ok, label: 'On'),
           ]),
           const SizedBox(height: 8),
@@ -287,6 +306,25 @@ class _Card extends StatelessWidget {
             FilledButton(onPressed: onAction, child: Text(action!)),
           ],
           for (final w in children) ...[const SizedBox(height: 10), w],
+        ]),
+      );
+}
+
+/// Android 13+ blocks "notification access" for apps installed from a file until the user allows it in App info.
+/// Without this hint the screen just says "App was denied access" and people get stuck.
+class _Restricted extends StatelessWidget {
+  const _Restricted();
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(color: HubColors.surface2, borderRadius: BorderRadius.circular(12)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Android says "App was denied access"?', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+          const SizedBox(height: 6),
+          const Text('Apps installed from a file are blocked at first. Open App info, tap the ⋮ menu at the top right, choose "Allow restricted settings", then tap the button above again.',
+              style: TextStyle(color: HubColors.muted, fontSize: 13, height: 1.4)),
+          const SizedBox(height: 4),
+          TextButton(onPressed: openAppSettings, child: const Text('Open App info')),
         ]),
       );
 }
@@ -307,5 +345,5 @@ class _Hint extends StatelessWidget {
   const _Hint(this.text);
   final String text;
   @override
-  Widget build(BuildContext context) => Text(text, style: const TextStyle(color: HubColors.muted, fontSize: 13, height: 1.4));
+  Widget build(BuildContext context) => Text(text, style: const TextStyle(color: HubColors.muted, fontSize: 13.5, height: 1.4));
 }

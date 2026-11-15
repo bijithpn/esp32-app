@@ -73,6 +73,10 @@ arduino-cli upload  -p /dev/ttyUSB0 --fqbn esp32:esp32:esp32:PartitionScheme=min
 Flash use is about 75% of the 1.9 MB slot.
 If the port is not accessible: `sudo usermod -aG dialout $USER` and log in again. `./check_esp32.sh` (repository root) shows whether the board is detected.
 
+> **0.4.1:** the app now tells you whether the board joined your Wi-Fi (wrong password / network not found), the board
+> keeps Bluetooth on whenever its saved Wi-Fi can't be joined, and the Wi-Fi scan no longer gets stuck on an empty list.
+> New endpoint: `GET /api/wifi/status`. Reflash the board to get these.
+
 ### 2.3 First boot: give it Wi-Fi
 
 A board with no Wi-Fi saved starts **setup mode**: the screen shows `SETUP MODE`, it creates its own hotspot
@@ -317,3 +321,16 @@ BLE advertising seen from a computer; memory stays flat during the tests; no reb
 - Over-the-air updates.
 
 **Not built:** Firebase login / accounts (replaced by the token and QR pairing), a cloud dashboard, iOS support for phone sync (iOS does not allow it), an on-board microphone.
+
+---
+
+## Wi-Fi setup notes (firmware 0.4.1 / app 1.1.0)
+
+- In setup mode the app sends the Wi-Fi to the board **while the hotspot stays up**, then polls `GET /api/wifi/status`
+  (`connecting | ok | fail`, reason `bad_password | not_found | timeout`). The network is only saved once the join works, so a typo
+  never overwrites a working saved Wi-Fi. The board restarts into normal mode 8 s after success.
+- `GET /api/scan` restarts its scan by itself (an empty result no longer sticks) and returns names strongest first.
+- Bluetooth setup stays available whenever the board could not join its saved Wi-Fi at boot.
+- The Android app pins itself to a Wi-Fi without internet (the board's hotspot) so Android does not send traffic over mobile data.
+- Notification access on Android 13+ for sideloaded apps: App info > ⋮ > Allow restricted settings.
+

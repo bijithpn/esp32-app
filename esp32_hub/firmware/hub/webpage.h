@@ -91,8 +91,17 @@ async function lockIt(){
 function sendMsg(){const t=$('text').value.trim();if(t){cmd({cmd:'msg',text:t,ttl:10});$('text').value='';say('Sent')}}
 async function saveWifi(){
   const ssid=$('ssid').value.trim();if(!ssid){say('Enter the network name');return}
-  say('Saving... the board will reboot. Rejoin your normal Wi-Fi and open the IP shown on the screen.');
-  fetch('/api/wifi',{method:'POST',headers:{'X-Hub-Token':tok()},body:JSON.stringify({ssid:ssid,pass:$('pass').value})}).catch(()=>{});
+  say('Connecting...');
+  try{await fetch('/api/wifi',{method:'POST',headers:{'X-Hub-Token':tok()},body:JSON.stringify({ssid:ssid,pass:$('pass').value})})}catch(e){}
+  for(let i=0;i<30;i++){
+    await new Promise(r=>setTimeout(r,1500));
+    try{
+      const s=await (await fetch('/api/wifi/status')).json();
+      if(s.state=='ok'){say('Connected to '+s.ssid+'. The board restarts now. Rejoin your normal Wi-Fi and open '+s.ip);return}
+      if(s.state=='fail'){say(s.reason=='bad_password'?'Wrong password. Try again.':s.reason=='not_found'?'Network not found. Only 2.4 GHz works.':'Could not connect. Try again.');return}
+    }catch(e){}
+  }
+  say('No answer. Rejoin your normal Wi-Fi and look for the IP on the display.');
 }
 load();setInterval(()=>{if($('ctl').style.display=='block')load()},8000);
 </script></body></html>)HTML";

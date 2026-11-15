@@ -79,74 +79,94 @@ class _QrScanPageState extends State<QrScanPage> {
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
-    final box = (size.shortestSide * 0.68).clamp(200.0, 320.0);
     return Scaffold(
       backgroundColor: Colors.black,
-      body: _camOk == null
-          ? const Center(child: CircularProgressIndicator())
-          : _camOk == false
-              ? SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.all(28),
-                    child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                      const Icon(Icons.no_photography_rounded, size: 56, color: HubColors.muted),
-                      const SizedBox(height: 18),
-                      const Text('Camera access is needed', textAlign: TextAlign.center, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
-                      const SizedBox(height: 8),
-                      const Text('Only to read the QR code on your board. Nothing is recorded or sent anywhere.', textAlign: TextAlign.center, style: TextStyle(color: HubColors.muted, height: 1.4)),
-                      const SizedBox(height: 24),
-                      FilledButton(onPressed: openAppSettings, child: const Text('Open settings')),
-                      const SizedBox(height: 10),
-                      OutlinedButton(onPressed: _askCamera, child: const Text('Try again')),
-                      const SizedBox(height: 10),
-                      TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-                    ]),
-                  ),
-                )
-              : Stack(children: [
-                  Positioned.fill(child: MobileScanner(controller: _ctl, onDetect: _onDetect)),
-                  // dark overlay with a clear square in the middle
-                  Positioned.fill(child: CustomPaint(painter: _ViewfinderPainter(box))),
-                  Positioned.fill(child: _ScanLine(box: box)),
-                  SafeArea(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Row(children: [
-                        IconButton.filledTonal(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded)),
-                        const Spacer(),
-                        IconButton.filledTonal(
-                          onPressed: () { _ctl.toggleTorch(); setState(() => _torch = !_torch); },
-                          icon: Icon(_torch ? Icons.flash_on_rounded : Icons.flash_off_rounded),
+      resizeToAvoidBottomInset: false, // an open keyboard must never squash the camera view
+      body: SafeArea(
+        top: false,
+        bottom: false,
+        child: _camOk == null
+            ? const Center(child: CircularProgressIndicator())
+            : _camOk == false
+                ? _noCamera()
+                : LayoutBuilder(builder: (context, c) {
+                    final box = (c.biggest.shortestSide * 0.68).clamp(200.0, 320.0);
+                    return SizedBox(
+                      width: c.maxWidth,
+                      height: c.maxHeight,
+                      child: Stack(fit: StackFit.expand, children: [
+                        MobileScanner(controller: _ctl, onDetect: _onDetect, fit: BoxFit.cover, errorBuilder: (ctx, e) => _noCamera(error: true)),
+                        // dark overlay with a clear square in the middle
+                        CustomPaint(painter: _ViewfinderPainter(box)),
+                        _ScanLine(box: box),
+                        Positioned(
+                          top: 0,
+                          left: 0,
+                          right: 0,
+                          child: SafeArea(
+                            bottom: false,
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
+                              child: Row(children: [
+                                IconButton(style: IconButton.styleFrom(backgroundColor: Colors.black54), onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded)),
+                                const Spacer(),
+                                IconButton(
+                                  style: IconButton.styleFrom(backgroundColor: Colors.black54),
+                                  onPressed: () { _ctl.toggleTorch(); setState(() => _torch = !_torch); },
+                                  icon: Icon(_torch ? Icons.flash_on_rounded : Icons.flash_off_rounded),
+                                ),
+                              ]),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          left: 20,
+                          right: 20,
+                          bottom: 0,
+                          child: SafeArea(
+                            top: false,
+                            child: Padding(
+                              padding: const EdgeInsets.only(bottom: 20),
+                              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                                if (_warn != null) Padding(padding: const EdgeInsets.only(bottom: 12), child: StatusPill(color: HubColors.warn, label: _warn!)),
+                                const Panel(
+                                  color: Color(0xE6101215),
+                                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                                    Text('Scan the code on your board', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
+                                    SizedBox(height: 6),
+                                    Text('On the board open the "Pair (QR)" scene (or Settings > Show pairing QR on display), then hold the phone about 20 cm from the screen.',
+                                        textAlign: TextAlign.center, style: TextStyle(color: HubColors.muted, fontSize: 13, height: 1.4)),
+                                  ]),
+                                ),
+                              ]),
+                            ),
+                          ),
                         ),
                       ]),
-                    ),
-                  ),
-                  Positioned(
-                    left: 24,
-                    right: 24,
-                    bottom: 0,
-                    child: SafeArea(
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: 20),
-                        child: Column(mainAxisSize: MainAxisSize.min, children: [
-                          if (_warn != null) Padding(padding: const EdgeInsets.only(bottom: 12), child: StatusPill(color: HubColors.warn, label: _warn!)),
-                          Panel(
-                            color: HubColors.surface.withValues(alpha: 0.92),
-                            child: const Column(mainAxisSize: MainAxisSize.min, children: [
-                              Text('Scan the code on your board', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
-                              SizedBox(height: 6),
-                              Text('On the board, open the "Pair (QR)" scene (Settings > Show pairing QR on display), then hold the phone about 20 cm from the screen.',
-                                  textAlign: TextAlign.center, style: TextStyle(color: HubColors.muted, fontSize: 13, height: 1.4)),
-                            ]),
-                          ),
-                        ]),
-                      ),
-                    ),
-                  ),
-                ]),
+                    );
+                  }),
+      ),
     );
   }
+
+  Widget _noCamera({bool error = false}) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            const Icon(Icons.no_photography_outlined, size: 48, color: HubColors.muted),
+            const SizedBox(height: 18),
+            Text(error ? 'The camera did not start' : 'Camera access is needed', textAlign: TextAlign.center, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            const Hint('Only to read the QR code on your board. Nothing is recorded or sent anywhere.'),
+            const SizedBox(height: 24),
+            FilledButton(onPressed: openAppSettings, child: const Text('Open settings')),
+            const SizedBox(height: 10),
+            OutlinedButton(onPressed: _askCamera, child: const Text('Try again')),
+            const SizedBox(height: 6),
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          ]),
+        ),
+      );
 }
 
 class _ViewfinderPainter extends CustomPainter {
@@ -157,7 +177,7 @@ class _ViewfinderPainter extends CustomPainter {
     final r = RRect.fromRectAndRadius(Rect.fromCenter(center: Offset(size.width / 2, size.height * 0.42), width: box, height: box), const Radius.circular(24));
     final dim = Path()..addRect(Offset.zero & size)..addRRect(r)..fillType = PathFillType.evenOdd;
     canvas.drawPath(dim, Paint()..color = Colors.black.withValues(alpha: 0.62));
-    final p = Paint()..color = HubColors.accent..style = PaintingStyle.stroke..strokeWidth = 4..strokeCap = StrokeCap.round;
+    final p = Paint()..color = Colors.white..style = PaintingStyle.stroke..strokeWidth = 4..strokeCap = StrokeCap.round;
     const l = 34.0;
     final b = r.outerRect;
     for (final c in [
@@ -186,7 +206,7 @@ class _ScanLine extends StatelessWidget {
         final y = top + k * h;
         c.drawRRect(
           RRect.fromRectAndRadius(Rect.fromLTWH(size.width / 2 - box / 2 + 14, y - 1.5, box - 28, 3), const Radius.circular(2)),
-          Paint()..color = HubColors.accent.withValues(alpha: 0.9)..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+          Paint()..color = Colors.white.withValues(alpha: 0.85),
         );
       });
 }
@@ -304,7 +324,7 @@ class _SettingsPageState extends State<SettingsPage> {
             'so photo animations and weather may not work. It is meant for first-time Wi-Fi setup only.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Reboot')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Restart')),
         ],
       ),
     );
@@ -314,16 +334,20 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  Widget _section(String title, List<Widget> children) => Card(
-        margin: const EdgeInsets.only(bottom: 14),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title, style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 8),
-            ...children,
-          ]),
-        ),
+  Widget _section(String title, List<Widget> children) => Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          SectionTitle(title),
+          Panel(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: children)),
+        ]),
+      );
+
+  Widget _kv(String k, String v) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          SizedBox(width: 96, child: Text(k, style: const TextStyle(color: HubColors.muted, fontSize: 14))),
+          Expanded(child: Text(v, style: const TextStyle(fontSize: 14))),
+        ]),
       );
 
   @override
@@ -331,70 +355,75 @@ class _SettingsPageState extends State<SettingsPage> {
     final locked = _d['lock'] == true;
     final mqttOn = _d['mqtt'] == true;
     final id = _d['id'] ?? '?';
+    final ap = _d['ap'] == true;
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
-      body: ListView(padding: const EdgeInsets.all(16), children: [
-        _section('Device', [
-          Text('ID: $id'),
-          Text('Firmware: ${_d['fw']}'),
-          Text('Address: ${_d['ip']}'),
-          const SizedBox(height: 8),
-          Wrap(spacing: 8, children: [
-            OutlinedButton.icon(onPressed: () => _run({'cmd': 'pair'}), icon: const Icon(Icons.qr_code_2), label: const Text('Show pairing QR on display')),
-          ]),
+      body: ListView(padding: const EdgeInsets.fromLTRB(20, 0, 20, 32), children: [
+        _section('Board', [
+          _kv('ID', '$id'),
+          _kv('Firmware', '${_d['fw']}'),
+          _kv('Address', '${_d['ip']}'),
+          _kv('Wi-Fi', ap ? 'Not connected (setup hotspot)' : 'Connected'),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(onPressed: () => _run({'cmd': 'pair'}), icon: const Icon(Icons.qr_code_2_rounded), label: const Text('Show pairing QR on display')),
         ]),
         _section('Security', [
-          Text(locked ? 'Locked: the board only accepts commands with the token.' : 'Not locked: anyone on your Wi-Fi can control the board and update its firmware.'),
-          const SizedBox(height: 8),
+          Hint(locked ? 'Locked: the board only accepts commands that carry the token.' : 'Not locked: anyone on your Wi-Fi can control the board and update its firmware.'),
+          const SizedBox(height: 10),
           if (_token.isNotEmpty)
             Row(children: [
-              Expanded(child: SelectableText('Token: $_token', style: const TextStyle(fontFamily: 'monospace'))),
-              IconButton(icon: const Icon(Icons.copy), onPressed: () { Clipboard.setData(ClipboardData(text: _token)); _toast('Token copied'); }),
+              Expanded(child: SelectableText('Token: $_token', style: const TextStyle(fontFamily: 'monospace', fontSize: 13))),
+              IconButton(icon: const Icon(Icons.copy_rounded, size: 20), onPressed: () { Clipboard.setData(ClipboardData(text: _token)); _toast('Token copied'); }),
             ]),
+          const SizedBox(height: 6),
           Wrap(spacing: 8, runSpacing: 8, children: [
-            if (!locked) FilledButton.icon(onPressed: () => _lock(true), icon: const Icon(Icons.lock), label: const Text('Lock with token')),
-            if (locked) OutlinedButton.icon(onPressed: () => _lock(false), icon: const Icon(Icons.lock_open), label: const Text('Unlock')),
-            OutlinedButton.icon(onPressed: _newToken, icon: const Icon(Icons.refresh), label: const Text('New token')),
+            if (!locked) FilledButton.icon(onPressed: () => _lock(true), icon: const Icon(Icons.lock_outline_rounded), label: const Text('Lock with token')),
+            if (locked) OutlinedButton.icon(onPressed: () => _lock(false), icon: const Icon(Icons.lock_open_rounded), label: const Text('Unlock')),
+            OutlinedButton.icon(onPressed: _newToken, icon: const Icon(Icons.refresh_rounded), label: const Text('New token')),
           ]),
         ]),
         _section('Remote access (MQTT)', [
-          const Text('Control the board from anywhere through an MQTT broker. The board connects out to the broker, so no port forwarding is needed. '
-              'Commands must carry the device token (always required over MQTT).'),
-          TextField(controller: _mHost, decoration: const InputDecoration(labelText: 'Broker host (e.g. broker.hivemq.com or your server)')),
+          const Hint('Control the board from anywhere through an MQTT broker. The board connects out to the broker, so no port forwarding is needed. Commands always carry the device token.'),
+          const SizedBox(height: 14),
+          TextField(controller: _mHost, decoration: const InputDecoration(labelText: 'Broker host')),
+          const SizedBox(height: 10),
           Row(children: [
             Expanded(child: TextField(controller: _mPort, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Port'))),
             const SizedBox(width: 12),
-            Expanded(child: SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('TLS'), value: _mTls, onChanged: (v) => setState(() => _mTls = v))),
+            Expanded(child: Row(children: [
+              const Expanded(child: Text('TLS', style: TextStyle(fontSize: 15))),
+              Switch(value: _mTls, onChanged: (v) => setState(() => _mTls = v)),
+            ])),
           ]),
+          const SizedBox(height: 10),
           TextField(controller: _mUser, decoration: const InputDecoration(labelText: 'Username (optional)')),
+          const SizedBox(height: 10),
           TextField(controller: _mPass, obscureText: true, decoration: const InputDecoration(labelText: 'Password (optional)')),
-          const SizedBox(height: 8),
-          Text('Status on the board: ${mqttOn ? 'enabled' : 'off'}'),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
+          Hint('Status on the board: ${mqttOn ? 'enabled' : 'off'}'),
+          const SizedBox(height: 10),
           Wrap(spacing: 8, runSpacing: 8, children: [
             FilledButton(onPressed: () => _mqtt(true), child: const Text('Enable on board')),
             OutlinedButton(onPressed: () => _mqtt(false), child: const Text('Disable')),
           ]),
-          const SizedBox(height: 8),
-          Text('To connect remotely: Connect screen > Remote (MQTT), with device ID "$id" and the token above.', style: const TextStyle(fontSize: 12)),
-          const Text('Tip: a public broker is visible to others. Use your own broker, a username/password and TLS for anything but testing.', style: TextStyle(fontSize: 12)),
+          const SizedBox(height: 12),
+          Hint('To connect remotely use Connect > Internet (MQTT) with device ID "$id" and the token above. A public broker is visible to others: use your own broker with a username, password and TLS for anything but testing.'),
         ]),
         _section('Bluetooth', [
-          Text('Bluetooth setup on the board: ${_d['ble'] == true ? 'on' : 'off'}'),
-          const Text('Used to give a new board its Wi-Fi without a browser. On a board with no Wi-Fi saved it is on automatically.', style: TextStyle(fontSize: 12)),
-          const SizedBox(height: 8),
+          Hint('Bluetooth setup on the board is ${_d['ble'] == true ? 'on' : 'off'}. It lets the app give a board its Wi-Fi without a browser. It is on automatically while the board has no working Wi-Fi.'),
+          const SizedBox(height: 10),
           Wrap(spacing: 8, runSpacing: 8, children: [
-            OutlinedButton(onPressed: () => _ble(true), child: const Text('Enable (reboots)')),
-            OutlinedButton(onPressed: () => _ble(false), child: const Text('Disable (reboots)')),
+            OutlinedButton(onPressed: () => _ble(true), child: const Text('Enable (restarts)')),
+            OutlinedButton(onPressed: () => _ble(false), child: const Text('Disable (restarts)')),
           ]),
         ]),
-        _section('Phone', [
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.notifications_active),
-            title: const Text('Phone magic'),
-            subtitle: const Text('Notifications, music and weather from your phone'),
-            trailing: const Icon(Icons.chevron_right),
+        const SectionTitle('Phone'),
+        Group(children: [
+          Row2(
+            icon: Icons.notifications_none_rounded,
+            title: 'Notifications, music and weather',
+            sub: 'What your phone shares with the board',
+            trailing: const Icon(Icons.chevron_right_rounded, color: HubColors.muted),
             onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => PermissionsPage(api: widget.api))),
           ),
         ]),
@@ -411,7 +440,7 @@ class BleSetupPage extends StatefulWidget {
   State<BleSetupPage> createState() => _BleSetupPageState();
 }
 
-class _BleSetupPageState extends State<BleSetupPage> {
+class _BleSetupPageState extends State<BleSetupPage> with WidgetsBindingObserver {
   static final _svc = Uuid.parse('6e400001-b5a3-f393-e0a9-e50e24dcca9e');
   static final _cmdChr = Uuid.parse('6e400002-b5a3-f393-e0a9-e50e24dcca9e');
   static final _infoChr = Uuid.parse('6e400003-b5a3-f393-e0a9-e50e24dcca9e');
@@ -420,15 +449,30 @@ class _BleSetupPageState extends State<BleSetupPage> {
   final Map<String, DiscoveredDevice> _found = {};
   StreamSubscription<DiscoveredDevice>? _scanSub;
   StreamSubscription<ConnectionStateUpdate>? _connSub;
-  bool _scanning = false, _connected = false, _busy = false;
+  StreamSubscription<BleStatus>? _statusSub;
+  BleStatus _status = BleStatus.unknown;
+  bool _scanning = false, _connected = false, _busy = false, _showPass = false;
   String? _deviceId, _msg;
   Map<String, dynamic>? _info;
   final _ssid = TextEditingController(), _pass = TextEditingController(), _token = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // follows Bluetooth being switched on or off while this page is open
+    _statusSub = _ble.statusStream.listen((s) { if (mounted) setState(() => _status = s); });
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _statusSub?.cancel();
     _scanSub?.cancel();
     _connSub?.cancel();
+    _ssid.dispose();
+    _pass.dispose();
+    _token.dispose();
     super.dispose();
   }
 
@@ -443,26 +487,46 @@ class _BleSetupPageState extends State<BleSetupPage> {
     return (scanOk && connOk) || locOk;
   }
 
+  /// Plain-language problem for the current Bluetooth state, or null when scanning can start.
+  String? get _blocker {
+    switch (_status) {
+      case BleStatus.poweredOff:
+        return 'Bluetooth is turned off on your phone.';
+      case BleStatus.unauthorized:
+        return 'This app is not allowed to use Bluetooth. Allow "Nearby devices" in the app settings.';
+      case BleStatus.locationServicesDisabled:
+        return 'Android needs Location switched on to find Bluetooth devices.';
+      case BleStatus.unsupported:
+        return 'This phone does not support Bluetooth Low Energy.';
+      default:
+        return null;
+    }
+  }
+
   Future<void> _scan() async {
     if (!await _permissions()) {
       setState(() => _msg = 'Bluetooth permission was denied. Allow "Nearby devices" for this app in Android settings.');
       return;
     }
+    if (_blocker != null) { setState(() => _msg = null); return; }
     await _scanSub?.cancel();
     setState(() { _found.clear(); _msg = null; _scanning = true; });
     _scanSub = _ble.scanForDevices(withServices: [_svc], scanMode: ScanMode.lowLatency, requireLocationServicesEnabled: false).listen(
       (d) { if (mounted) setState(() => _found[d.id] = d); },
-      onError: (e) { if (mounted) setState(() { _msg = 'Scan failed: $e (is Bluetooth on?)'; _scanning = false; }); },
+      onError: (e) {
+        final off = '$e'.toLowerCase().contains('disabled') || '$e'.toLowerCase().contains('powered');
+        if (mounted) setState(() { _msg = off ? 'Bluetooth is turned off. Turn it on, then scan again.' : 'The scan did not work. Try again.'; _scanning = false; });
+      },
     );
     Future.delayed(const Duration(seconds: 10), () async {
       await _scanSub?.cancel();
-      if (mounted) setState(() { _scanning = false; if (_found.isEmpty) _msg = 'No board found. It must be in setup mode (the screen says SETUP MODE) and within a few metres.'; });
+      if (mounted && _scanning) setState(() { _scanning = false; if (_found.isEmpty) _msg = 'No board found. Its screen should say SETUP or NO WI-FI, and it has to be within a few metres of the phone.'; });
     });
   }
 
   Future<void> _connect(DiscoveredDevice d) async {
     await _scanSub?.cancel();
-    setState(() { _busy = true; _msg = 'Connecting to ${d.name}...'; _scanning = false; });
+    setState(() { _busy = true; _msg = 'Connecting to ${d.name}…'; _scanning = false; });
     _connSub?.cancel();
     _connSub = _ble.connectToDevice(id: d.id, connectionTimeout: const Duration(seconds: 15)).listen((u) async {
       if (u.connectionState == DeviceConnectionState.connected) {
@@ -475,7 +539,7 @@ class _BleSetupPageState extends State<BleSetupPage> {
       } else if (u.connectionState == DeviceConnectionState.disconnected && mounted) {
         setState(() { _connected = false; _busy = false; });
       }
-    }, onError: (e) { if (mounted) setState(() { _busy = false; _msg = 'Connection failed: $e'; }); });
+    }, onError: (e) { if (mounted) setState(() { _busy = false; _msg = 'Could not connect. Move closer to the board and try again.'; }); });
   }
 
   Future<Map<String, dynamic>?> _readInfo() async {
@@ -492,7 +556,8 @@ class _BleSetupPageState extends State<BleSetupPage> {
   Future<void> _provision() async {
     final ssid = _ssid.text.trim();
     if (ssid.isEmpty) { setState(() => _msg = 'Enter the Wi-Fi name'); return; }
-    setState(() { _busy = true; _msg = 'Sending...'; });
+    FocusScope.of(context).unfocus();
+    setState(() { _busy = true; _msg = 'Sending…'; });
     final payload = {'ssid': ssid, 'pass': _pass.text, if (_token.text.trim().isNotEmpty) 't': _token.text.trim()};
     try {
       await _ble.writeCharacteristicWithResponse(_q(_cmdChr), value: utf8.encode(jsonEncode(payload)));
@@ -500,7 +565,7 @@ class _BleSetupPageState extends State<BleSetupPage> {
       final info = await _readInfo();      // may fail if the board already rebooted: that is fine
       final last = info?['last'];
       if (last is Map && last['ok'] == false) {
-        setState(() { _busy = false; _msg = 'Board said: ${last['error']}'; });
+        setState(() { _busy = false; _msg = 'The board said: ${last['error']}'; });
       } else {
         setState(() { _msg = 'Saved. The board is restarting and joining "$ssid"…'; });
         final f = await Discovery.waitFor('${_info?['id'] ?? ''}', limit: const Duration(seconds: 75));
@@ -509,45 +574,80 @@ class _BleSetupPageState extends State<BleSetupPage> {
           Navigator.pop(context, f);
           return;
         }
-        setState(() { _busy = false; _msg = 'The board is joining "$ssid" but I cannot see it yet. Make sure your phone is back on your home Wi-Fi, then go back and tap Search again.'; });
+        setState(() { _busy = false; _msg = 'The board should be joining "$ssid" but I can\'t see it yet. Check the password, make sure your phone is on your home Wi-Fi, then go back and tap Search again.'; });
       }
     } catch (e) {
-      setState(() { _busy = false; _msg = 'Could not send: $e'; });
+      setState(() { _busy = false; _msg = 'Could not send it to the board. Stay close to it and try again.'; });
     }
   }
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Bluetooth Wi-Fi setup')),
-        body: ListView(padding: const EdgeInsets.all(16), children: [
-          if (!_connected) ...[
-            const Text('Power the board. If it has no Wi-Fi saved, its screen shows SETUP MODE and Bluetooth is on. Then tap Scan.'),
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: (_scanning || _busy) ? null : _scan,
-              icon: _scanning ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.bluetooth_searching),
-              label: Text(_scanning ? 'Scanning...' : 'Scan'),
-            ),
-            for (final d in _found.values)
-              Card(
-                child: ListTile(
-                  leading: const Icon(Icons.memory),
-                  title: Text(d.name.isEmpty ? d.id : d.name),
-                  subtitle: Text('signal ${d.rssi} dBm'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: _busy ? null : () => _connect(d),
-                ),
-              ),
-          ] else ...[
-            Card(child: ListTile(leading: const Icon(Icons.bluetooth_connected), title: Text('Connected: ${_info?['id'] ?? ''}'), subtitle: Text('mode ${_info?['mode']}  ·  fw ${_info?['fw']}'))),
-            const SizedBox(height: 8),
-            TextField(controller: _ssid, decoration: const InputDecoration(labelText: 'Wi-Fi name (2.4 GHz)'), autocorrect: false),
-            TextField(controller: _pass, obscureText: true, decoration: const InputDecoration(labelText: 'Wi-Fi password')),
-            if (_info?['lock'] == true) TextField(controller: _token, decoration: const InputDecoration(labelText: 'Device token (board is locked)')),
-            const SizedBox(height: 12),
-            FilledButton.icon(onPressed: _busy ? null : _provision, icon: const Icon(Icons.wifi), label: const Text('Send Wi-Fi to the board')),
-          ],
-          if (_msg != null) Padding(padding: const EdgeInsets.only(top: 16), child: Text(_msg!)),
+  Widget _blockerCard(String text) => Panel(
+        color: HubColors.warn.withValues(alpha: 0.08),
+        borderColor: HubColors.warn.withValues(alpha: 0.35),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(text, style: const TextStyle(height: 1.4)),
+          const SizedBox(height: 12),
+          Row(children: [
+            if (_status == BleStatus.unauthorized)
+              FilledButton(onPressed: openAppSettings, child: const Text('App settings'))
+            else
+              FilledButton(onPressed: _status == BleStatus.poweredOff ? PhoneBridge.openBluetoothSettings : openAppSettings, child: Text(_status == BleStatus.poweredOff ? 'Open Bluetooth settings' : 'Open settings')),
+          ]),
         ]),
       );
+
+  @override
+  Widget build(BuildContext context) {
+    final blocker = _blocker;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Wi-Fi with Bluetooth')),
+      body: ListView(padding: const EdgeInsets.fromLTRB(20, 4, 20, 32), children: [
+        if (!_connected) ...[
+          const Hint('Power the board. When it has no working Wi-Fi its screen shows SETUP or NO WI-FI and Bluetooth is on. Then tap Scan.'),
+          const SizedBox(height: 18),
+          if (blocker != null) ...[_blockerCard(blocker), const SizedBox(height: 14)],
+          FilledButton.icon(
+            onPressed: (_scanning || _busy || blocker != null) ? null : _scan,
+            icon: _scanning ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.bluetooth_searching_rounded),
+            label: Text(_scanning ? 'Scanning…' : 'Scan for boards'),
+          ),
+          if (_found.isNotEmpty) ...[
+            const SizedBox(height: 18),
+            Group(children: [
+              for (final d in _found.values)
+                Row2(
+                  icon: Icons.memory_rounded,
+                  title: d.name.isEmpty ? d.id : d.name,
+                  sub: 'Signal ${d.rssi} dBm',
+                  trailing: const Icon(Icons.chevron_right_rounded, color: HubColors.muted),
+                  onTap: _busy ? null : () => _connect(d),
+                ),
+            ]),
+          ],
+        ] else ...[
+          Group(children: [Row2(icon: Icons.bluetooth_connected_rounded, iconColor: HubColors.ok, title: 'Connected to ${_info?['id'] ?? 'the board'}', sub: 'Firmware ${_info?['fw']}')]),
+          const SizedBox(height: 16),
+          TextField(controller: _ssid, decoration: const InputDecoration(labelText: 'Wi-Fi name (2.4 GHz)'), autocorrect: false),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _pass,
+            obscureText: !_showPass,
+            autocorrect: false,
+            enableSuggestions: false,
+            decoration: InputDecoration(
+              labelText: 'Wi-Fi password',
+              suffixIcon: IconButton(icon: Icon(_showPass ? Icons.visibility_off_rounded : Icons.visibility_rounded, color: HubColors.muted), onPressed: () => setState(() => _showPass = !_showPass)),
+            ),
+          ),
+          if (_info?['lock'] == true) ...[
+            const SizedBox(height: 12),
+            TextField(controller: _token, decoration: const InputDecoration(labelText: 'Device token (board is locked)')),
+          ],
+          const SizedBox(height: 18),
+          FilledButton(onPressed: _busy ? null : _provision, child: Text(_busy ? 'Working…' : 'Send Wi-Fi to the board')),
+        ],
+        if (_msg != null) Padding(padding: const EdgeInsets.only(top: 16), child: Hint(_msg!)),
+      ]),
+    );
+  }
 }

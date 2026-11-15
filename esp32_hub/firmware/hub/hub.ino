@@ -23,7 +23,7 @@
 #include "esp_bt.h"
 #include "qrcode_lib.h"   // vendored copy of the MIT-licensed "QRCode" library (ESP-IDF ships a different qrcode.h)
 
-#define FW_VERSION "0.4.0"
+#define FW_VERSION "0.4.1"
 #define TFT_CS 15
 #define TFT_DC 2
 #define TFT_RST 4
@@ -56,6 +56,12 @@ static inline uint16_t rgb(uint8_t r, uint8_t g, uint8_t b) {
 uint32_t lastClientMs = 0;            // last time an app / browser talked to the board (shown on the status screen)
 uint32_t msgStartMs = 0, msgTtlMs = 0; // current message card timing (progress bar)
 String savedSsid, savedPass;          // Wi-Fi from NVS, kept so the board can keep trying to rejoin
+// Joining a network from the setup hotspot: the app sends the credentials, then polls /api/wifi/status.
+// They are only saved once the join worked, so a typo never overwrites a working saved network.
+enum WifiTry { WT_IDLE, WT_TRY, WT_OK, WT_FAIL };
+WifiTry wifiTry = WT_IDLE;
+uint32_t wifiTryAt = 0;
+String trySsid, tryPass, tryIp, tryReason;
 void mqttApply();
 void bleStart();
 void bleStop();
@@ -116,6 +122,8 @@ void buildList(JsonDocument& d) {
   d["scene"] = SCENES[curScene].id;
   d["ip"] = apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
   d["ap"] = apMode;
+  d["online"] = WiFi.status() == WL_CONNECTED;   // joined a router (false in setup mode)
+  d["saved"] = savedSsid.length() > 0;           // a Wi-Fi network is stored on the board
   d["lock"] = lockOn;
   d["mqtt"] = mqttOn;
   d["ble"] = bleOn;
@@ -235,34 +243,74 @@ void apiCmd() {
 void apiWifi() {
   if (!authed()) { deny(); return; }
   String ssid, pass;
+  bool json = false;
   if (server.hasArg("ssid")) { ssid = server.arg("ssid"); pass = server.arg("pass"); }
   else {
     JsonDocument d;
     if (deserializeJson(d, server.arg("plain"))) { server.send(400, "text/plain", "bad json"); return; }
     ssid = String(d["ssid"] | ""); pass = String(d["pass"] | "");
+    json = true;
   }
   if (!ssid.length()) { server.send(400, "text/plain", "ssid required"); return; }
+  if (apMode && json) {
+    // Try it right now while the hotspot stays up, so the app can show whether it worked (see wifiKeepAlive).
+    trySsid = ssid; tryPass = pass; tryIp = ""; tryReason = "";
+    wifiTry = WT_TRY; wifiTryAt = millis();
+    WiFi.disconnect(false);
+    WiFi.begin(ssid.c_str(), pass.c_str());
+    server.send(200, "application/json", "{\"ok\":true,\"state\":\"connecting\"}");
+    return;
+  }
   prefs.putString("ssid", ssid);
   prefs.putString("pass", pass);
   server.send(200, "text/html", "<h3>Saved. Rebooting and joining the network...</h3>");
   rebootAt = millis() + 600;
 }
 
+// Progress of the join started by apiWifi. state: idle | connecting | ok | fail (reason: bad_password | not_found | timeout)
+void apiWifiStatus() {
+  const char* st = wifiTry == WT_TRY ? "connecting" : wifiTry == WT_OK ? "ok" : wifiTry == WT_FAIL ? "fail" : "idle";
+  JsonDocument d;
+  d["state"] = st;
+  d["ssid"] = trySsid;
+  d["ip"] = tryIp;
+  d["reason"] = tryReason;
+  d["online"] = WiFi.status() == WL_CONNECTED;
+  sendJson(200, d);
+}
+
 // Tiny and always open: the app uses it to find the board on the network (it never reveals the token).
 void apiHello() {
   String ip = apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
   String out = String("{\"device\":\"ESP32-Hub\",\"id\":\"") + deviceId + "\",\"fw\":\"" FW_VERSION "\",\"ap\":" + (apMode ? "true" : "false") +
-               ",\"lock\":" + (lockOn ? "true" : "false") + ",\"ip\":\"" + ip + "\"}";
+               ",\"online\":" + (WiFi.status() == WL_CONNECTED ? "true" : "false") + ",\"lock\":" + (lockOn ? "true" : "false") + ",\"ip\":\"" + ip + "\"}";
   server.send(200, "application/json", out);
 }
 
+// Networks around the board, strongest first. The scan runs in the background and restarts by itself, so an empty or
+// stale result never sticks (the app and the setup page just keep asking).
 void apiScan() {
+  static uint32_t scanStarted = 0;
   int n = WiFi.scanComplete();
   JsonDocument d;
   JsonArray arr = d.to<JsonArray>();
-  if (n == WIFI_SCAN_FAILED) WiFi.scanNetworks(true);      // not started yet
-  else if (n > 0) {
-    for (int i = 0; i < n; i++) { String s = WiFi.SSID(i); if (s.length()) arr.add(s); }
+  if (n > 0) {
+    String names[24]; int rs[24]; int m = 0;
+    for (int i = 0; i < n; i++) {
+      String s = WiFi.SSID(i);
+      if (!s.length()) continue;
+      int r = WiFi.RSSI(i);
+      bool dup = false;
+      for (int j = 0; j < m; j++) if (names[j] == s) { dup = true; if (r > rs[j]) rs[j] = r; break; }
+      if (!dup && m < 24) { names[m] = s; rs[m] = r; m++; }
+    }
+    for (int a = 0; a < m; a++) for (int b = a + 1; b < m; b++) if (rs[b] > rs[a]) { int t = rs[a]; rs[a] = rs[b]; rs[b] = t; String ts = names[a]; names[a] = names[b]; names[b] = ts; }
+    for (int j = 0; j < m; j++) arr.add(names[j]);
+    if (millis() - scanStarted > 20000) { WiFi.scanDelete(); WiFi.scanNetworks(true); scanStarted = millis(); }   // refresh for next time
+  } else if (n != WIFI_SCAN_RUNNING) {      // nothing found, or never started: start (again)
+    WiFi.scanDelete();
+    WiFi.scanNetworks(true);
+    scanStarted = millis();
   }
   String out; serializeJson(d, out);
   server.send(200, "application/json", out);
@@ -286,8 +334,28 @@ void startMdns() {
 void wifiKeepAlive() {
   static uint32_t lastChk = 0, downSince = 0, lastKick = 0;
   uint32_t now = millis();
-  if (now - lastChk < 2000) return;
+  if (now - lastChk < 1000) return;
   lastChk = now;
+  if (apMode && wifiTry != WT_IDLE) {                                          // a join started from the app is in progress
+    if (wifiTry == WT_TRY) {
+      wl_status_t st = WiFi.status();
+      uint32_t el = now - wifiTryAt;
+      if (st == WL_CONNECTED) {
+        prefs.putString("ssid", trySsid); prefs.putString("pass", tryPass);    // saved only now that it works
+        savedSsid = trySsid; savedPass = tryPass;
+        tryIp = WiFi.localIP().toString();
+        wifiTry = WT_OK;
+        rebootAt = now + 8000;                                                 // leave time for the app to read the result, then restart cleanly
+      } else {
+        const char* why = nullptr;
+        if (el > 5000 && st == WL_NO_SSID_AVAIL) why = "not_found";
+        else if (el > 4000 && st == WL_CONNECT_FAILED) why = "bad_password";
+        else if (el > 25000) why = "timeout";
+        if (why) { tryReason = why; wifiTry = WT_FAIL; WiFi.disconnect(false); }
+      }
+    }
+    return;
+  }
   if (!savedSsid.length()) return;
   if (apMode) {
     if (WiFi.status() == WL_CONNECTED) { rebootAt = now + 300; return; }     // joined: restart cleanly into normal mode
@@ -334,7 +402,6 @@ void setup() {
   String ssid = prefs.getString("ssid", ""), pass = prefs.getString("pass", "");
   // Keep Bluetooth only for first-time setup (no Wi-Fi saved) or when the user enabled it; otherwise give its RAM back.
   bleAvailable = prefs.getBool("ble", false) || !ssid.length();
-  if (!bleAvailable) esp_bt_controller_mem_release(ESP_BT_MODE_BTDM);
 
   savedSsid = ssid; savedPass = pass;
   if (ssid.length()) {
@@ -349,6 +416,10 @@ void setup() {
       delay(60);
     }
   } else bootScreen("Setup mode", "starting hotspot", 50);
+  // Bluetooth stays available when it was asked for, when there is no Wi-Fi saved, or when the saved Wi-Fi could not be joined
+  // (so the app can always fix the Wi-Fi). Otherwise its RAM goes back to the system.
+  if (WiFi.status() != WL_CONNECTED) bleAvailable = true;
+  if (!bleAvailable) esp_bt_controller_mem_release(ESP_BT_MODE_BTDM);
   if (WiFi.status() != WL_CONNECTED) startAP();   // keeps trying the saved Wi-Fi in the background (see wifiKeepAlive)
   else {
     WiFi.setSleep(false);                         // no radio sleep: the board answers instantly and stays reachable
@@ -371,6 +442,7 @@ void setup() {
   });
   server.on("/wifi", HTTP_POST, apiWifi);
   server.on("/api/wifi", HTTP_POST, apiWifi);
+  server.on("/api/wifi/status", HTTP_GET, apiWifiStatus);
   server.on("/api/hello", HTTP_GET, apiHello);
   server.on("/api/list", HTTP_GET, apiList);
   server.on("/api/status", HTTP_GET, apiStatus);
