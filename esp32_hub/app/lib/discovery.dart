@@ -46,45 +46,75 @@ class Discovery {
     return out.toSet().toList();
   }
 
-  /// Quick checks first (last known address, mDNS name, the board's own hotspot), then every address on the local
-  /// network, 40 at a time. Reports each board as soon as it is found. `wantId` makes it stop at that board.
-  static Stream<FoundBoard> scan({String? lastHost, String? wantId}) async* {
-    await PhoneBridge.bindWifi(force: true);   // a Wi-Fi without internet (the board's hotspot) must not lose to mobile data
-    final seen = <String>{};
-    Future<FoundBoard?> one(String h) async {
-      if (!seen.add(h)) return null;
-      return probe(h);
-    }
+  /// Finds boards fast by trying every method at the same time and reporting each board the moment it answers:
+  ///  1. the last known address (usually the answer: the router gives the board the same IP every time)
+  ///  2. Android's own mDNS lookup of the board's "_esp32hub._tcp" service (a couple of seconds, no scanning)
+  ///  3. the board's hotspot address 192.168.4.1
+  ///  4. every address of the phone's network, 48 at a time, nearest to the last known address first
+  /// `wantId` makes it stop at that board.
+  static Stream<FoundBoard> scan({String? lastHost, String? wantId}) {
+    final ctl = StreamController<FoundBoard>();
+    var stop = false;
+    ctl.onCancel = () => stop = true;
 
-    final quick = [if (lastHost != null && lastHost.isNotEmpty) lastHost, 'esp32-hub.local', '192.168.4.1'];
-    // the board's hotspot address gets a second, longer try: right after joining it the phone can still be setting up
-    final first = await Future.wait(quick.map(one));
-    if (first.every((f) => f == null)) {
-      final again = await probe('192.168.4.1', timeout: const Duration(seconds: 2));
-      if (again != null) first[quick.length - 1] = again;
-    }
-    for (final f in first) {
-      if (f != null) {
-        yield f;
-        if (wantId == null || f.id == wantId) return;
-      }
-    }
-    lastPrefixes = await _prefixes();
-    for (final pre in lastPrefixes) {
-      final hosts = [for (var i = 1; i < 255; i++) '$pre.$i'];
-      for (var i = 0; i < hosts.length; i += 40) {
-        final chunk = hosts.sublist(i, i + 40 > hosts.length ? hosts.length : i + 40);
-        for (final f in await Future.wait(chunk.map((h) async {
-          if (!seen.add(h)) return null;
-          return probe(h, timeout: const Duration(milliseconds: 900));
-        }))) {
-          if (f != null) {
-            yield f;
-            if (wantId == null || f.id == wantId) return;
+    () async {
+      try {
+        await PhoneBridge.bindWifi(force: true); // a Wi-Fi without internet (the board's hotspot) must not lose to mobile data
+        final seen = <String>{};
+
+        Future<void> check(String h, Duration t) async {
+          if (stop || !seen.add(h)) return;
+          final f = await probe(h, timeout: t);
+          if (f == null || stop) return;
+          ctl.add(f);
+          if (wantId == null || f.id == wantId) stop = true;
+        }
+
+        final prefixes = await _prefixes();
+        lastPrefixes = prefixes;
+
+        // 4. sweep the local network(s); the likeliest addresses first
+        final hosts = <String>[];
+        final lastOctet = int.tryParse((lastHost ?? '').split('.').last);
+        final lastPre = (lastHost ?? '').contains('.') ? (lastHost!.split('.')..removeLast()).join('.') : null;
+        for (final pre in prefixes) {
+          final order = [for (var i = 1; i < 255; i++) i];
+          if (pre == lastPre && lastOctet != null) order.sort((a, b) => (a - lastOctet).abs().compareTo((b - lastOctet).abs()));
+          hosts.addAll(order.map((i) => '$pre.$i'));
+        }
+        Future<void> sweep() async {
+          var next = 0;
+          Future<void> worker() async {
+            while (!stop) {
+              final k = next++;
+              if (k >= hosts.length) return;
+              await check(hosts[k], const Duration(milliseconds: 700));
+            }
+          }
+          await Future.wait(List.generate(48, (_) => worker()));
+        }
+
+        Future<void> mdns() async {
+          for (final ip in await PhoneBridge.mdnsFind()) {
+            await check(ip, const Duration(milliseconds: 1500));
           }
         }
+
+        await Future.wait([
+          if (lastHost != null && lastHost.isNotEmpty) check(lastHost, const Duration(milliseconds: 1500)),
+          check('192.168.4.1', const Duration(milliseconds: 2000)),
+          check('esp32-hub.local', const Duration(milliseconds: 1500)),
+          mdns(),
+          sweep(),
+        ]);
+      } catch (_) {
+        // a failed lookup must never leave the app waiting: the stream just ends
+      } finally {
+        if (!ctl.isClosed) await ctl.close();
       }
-    }
+    }();
+
+    return ctl.stream;
   }
 
   /// Waits for a board with this id to (re)appear, e.g. after Wi-Fi setup or a router restart.

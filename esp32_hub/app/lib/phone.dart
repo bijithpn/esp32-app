@@ -41,6 +41,16 @@ class PhoneBridge {
     }
   }
 
+  /// Boards found by Android's own mDNS lookup (their IP addresses). Fast and needs no network scanning.
+  static Future<List<String>> mdnsFind({int timeoutMs = 2500}) async {
+    try {
+      final l = await _ch.invokeListMethod<String>('mdnsFind', {'timeoutMs': timeoutMs});
+      return l ?? [];
+    } catch (_) {
+      return [];
+    }
+  }
+
   /// Lets go of the board's hotspot (joined from its QR code) so the phone returns to its normal Wi-Fi.
   static Future<void> leaveHotspot() async {
     try {

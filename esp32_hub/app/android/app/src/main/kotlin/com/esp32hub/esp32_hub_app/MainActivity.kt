@@ -6,8 +6,12 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.nsd.NsdManager
+import android.net.nsd.NsdServiceInfo
 import android.net.wifi.WifiNetworkSpecifier
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.location.LocationManager
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
@@ -27,6 +31,7 @@ class MainActivity : FlutterActivity() {
                     }
                     // Pin this app to a Wi-Fi that has no internet (the board's hotspot), otherwise Android sends our traffic over mobile data.
                     "bindWifi" -> result.success(bindWifiWithoutInternet(call.argument<Boolean>("force") ?: false))
+                    "mdnsFind" -> mdnsFind(call.argument<Int>("timeoutMs") ?: 2500, result)
                     "joinWifi" -> joinWifi(call.argument<String>("ssid") ?: "", call.argument<String>("pass") ?: "", result)
                     "leaveHotspot" -> {
                         val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -67,6 +72,45 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    // Finds boards through mDNS ("_esp32hub._tcp", advertised by the firmware). Replies with their IP addresses.
+    private fun mdnsFind(timeoutMs: Int, result: MethodChannel.Result) {
+        val main = Handler(Looper.getMainLooper())
+        val found = mutableListOf<String>()
+        var replied = false
+        var listener: NsdManager.DiscoveryListener? = null
+        val nsd = try { getSystemService(NSD_SERVICE) as NsdManager } catch (e: Exception) { null }
+        if (nsd == null) { result.success(found); return }
+        fun finish() {
+            if (replied) return
+            replied = true
+            listener?.let { runCatching { nsd.stopServiceDiscovery(it) } }
+            result.success(found)
+        }
+        listener = object : NsdManager.DiscoveryListener {
+            override fun onDiscoveryStarted(serviceType: String) {}
+            override fun onServiceFound(info: NsdServiceInfo) {
+                @Suppress("DEPRECATION")
+                nsd.resolveService(info, object : NsdManager.ResolveListener {
+                    override fun onResolveFailed(i: NsdServiceInfo, errorCode: Int) {}
+                    override fun onServiceResolved(i: NsdServiceInfo) {
+                        val ip = i.host?.hostAddress
+                        main.post { if (ip != null && !found.contains(ip)) found.add(ip); finish() }
+                    }
+                })
+            }
+            override fun onServiceLost(info: NsdServiceInfo) {}
+            override fun onDiscoveryStopped(serviceType: String) {}
+            override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) { main.post { finish() } }
+            override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {}
+        }
+        try {
+            nsd.discoverServices("_esp32hub._tcp", NsdManager.PROTOCOL_DNS_SD, listener)
+        } catch (e: Exception) {
+            finish(); return
+        }
+        main.postDelayed({ finish() }, timeoutMs.toLong())
     }
 
     private var joinCallback: ConnectivityManager.NetworkCallback? = null

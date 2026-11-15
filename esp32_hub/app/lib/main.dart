@@ -45,9 +45,11 @@ class _StartPageState extends State<StartPage> {
   String _status = 'Looking for your board…';
   bool _remoteSaved = false;
   int _run = 0;
+  String? _connectError; // why the last board that answered could still not be opened
 
   /// Says what was searched, so "not found" is never a mystery.
   String get _why {
+    if (_connectError != null) return _connectError!;
     final nets = Discovery.lastPrefixes;
     if (nets.isEmpty) return 'Your phone does not seem to be on a Wi-Fi network. Turn Wi-Fi on and join the same network as the board.';
     return 'Searched ${nets.map((n) => '$n.x').join(', ')}. The board was not there. Check that it is powered, and that it is on this same Wi-Fi (its screen shows an IP address when it is).';
@@ -67,6 +69,7 @@ class _StartPageState extends State<StartPage> {
 
   Future<void> _auto() async {
     final run = ++_run;
+    _connectError = null;
     setState(() { _phase = _Phase.searching; _status = 'Looking for your board…'; });
     final p = await SharedPreferences.getInstance();
     final lastHost = p.getString('host') ?? '';
@@ -139,7 +142,8 @@ class _StartPageState extends State<StartPage> {
       if (!mounted) return true;
       _open(api, data);
       return true;
-    } catch (_) {
+    } catch (e) {
+      _connectError = 'A board answered at ${f.host}, but opening it failed: ${'$e'.replaceAll('Exception: ', '')}. Tap Search again.';
       return false;
     }
   }
