@@ -306,6 +306,7 @@ class WifiSetupPage extends StatefulWidget {
 
 class _WifiSetupPageState extends State<WifiSetupPage> {
   final _ssid = TextEditingController(), _pass = TextEditingController();
+  final _ssidFocus = FocusNode();
   List<String> _nets = [];
   bool _scanning = false, _showPass = false;
   int _scanRun = 0;
@@ -324,6 +325,7 @@ class _WifiSetupPageState extends State<WifiSetupPage> {
     _scanRun++;
     _ssid.dispose();
     _pass.dispose();
+    _ssidFocus.dispose();
     super.dispose();
   }
 
@@ -351,7 +353,7 @@ class _WifiSetupPageState extends State<WifiSetupPage> {
       case 'own_hotspot':
         return 'That is the board\'s own hotspot. Choose your home Wi-Fi (the one your phone normally uses).';
       case 'not_found':
-        return 'The board can\'t see that network. It only works with 2.4 GHz Wi-Fi, and it must be within range.';
+        return 'The board could not find a network with that name. Check the spelling (capital letters count), that it is a 2.4 GHz network, and that the router is close to the board.';
       default:
         return 'The board could not join in time. Check the name and password and try again.';
     }
@@ -399,6 +401,7 @@ class _WifiSetupPageState extends State<WifiSetupPage> {
 
     // The board leaves its hotspot now. Let go of it, so the phone goes back to the home Wi-Fi where the board will be.
     await PhoneBridge.leaveHotspot();
+    await Future.delayed(const Duration(seconds: 2));
     final f = await Discovery.waitFor(widget.boardId, limit: const Duration(seconds: 70), lastHost: newIp);
     if (!mounted) return;
     if (f != null) {
@@ -419,7 +422,10 @@ class _WifiSetupPageState extends State<WifiSetupPage> {
         final s = await widget.api.wifiStatus();
         errors = 0;
         final st = s['state'];
-        if (st == 'ok') return (kind: 'ok', reason: null, ip: '${s['ip']}', found: null);
+        if (st == 'ok') {
+          await PhoneBridge.leaveHotspot(); // the board is on the home Wi-Fi now: let go of its hotspot so the phone switches back
+          return (kind: 'ok', reason: null, ip: '${s['ip']}', found: null);
+        }
         if (st == 'fail') return (kind: 'fail', reason: '${s['reason']}', ip: null, found: null);
         _say('Connecting to "$ssid"…');
       } catch (_) {
@@ -462,8 +468,17 @@ class _WifiSetupPageState extends State<WifiSetupPage> {
                 onTap: joining ? null : () => setState(() => _ssid.text = n),
               ),
           ]),
+        const SizedBox(height: 8),
+        Group(children: [
+          Row2(
+            icon: Icons.add_rounded,
+            title: 'Other network',
+            sub: 'Not in the list, or hidden? Type its name and password',
+            onTap: joining ? null : () { setState(() => _ssid.clear()); _ssidFocus.requestFocus(); },
+          ),
+        ]),
         const SizedBox(height: 20),
-        TextField(controller: _ssid, enabled: !joining, autocorrect: false, onChanged: (_) => setState(() {}), decoration: const InputDecoration(labelText: 'Network name')),
+        TextField(controller: _ssid, focusNode: _ssidFocus, enabled: !joining, autocorrect: false, enableSuggestions: false, onChanged: (_) => setState(() {}), decoration: const InputDecoration(labelText: 'Network name')),
         const SizedBox(height: 12),
         TextField(
           controller: _pass,

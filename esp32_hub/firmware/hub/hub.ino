@@ -9,6 +9,7 @@
 #include <Adafruit_ST7735.h>
 #include <SPI.h>
 #include <WiFi.h>
+#include <esp_wifi.h>
 #include <WebServer.h>
 #include <ESPmDNS.h>
 #include <Preferences.h>
@@ -23,7 +24,7 @@
 #include "esp_bt.h"
 #include "qrcode_lib.h"   // vendored copy of the MIT-licensed "QRCode" library (ESP-IDF ships a different qrcode.h)
 
-#define FW_VERSION "0.4.4"
+#define FW_VERSION "0.4.5"
 #define TFT_CS 15
 #define TFT_DC 2
 #define TFT_RST 4
@@ -62,6 +63,7 @@ enum WifiTry { WT_IDLE, WT_TRY, WT_OK, WT_FAIL };
 WifiTry wifiTry = WT_IDLE;
 uint32_t wifiTryAt = 0;
 String trySsid, tryPass, tryIp, tryReason;
+volatile int lastDiscReason = 0, discCount = 0;   // last Wi-Fi disconnect reason and how many since the join started (see the event handler in setup)
 void mqttApply();
 void bleStart();
 void bleStop();
@@ -260,6 +262,10 @@ void apiWifi() {
     // Try it right now while the hotspot stays up, so the app can show whether it worked (see wifiKeepAlive).
     trySsid = ssid; tryPass = pass; tryIp = ""; tryReason = "";
     wifiTry = WT_TRY; wifiTryAt = millis();
+    lastDiscReason = 0; discCount = 0;
+    esp_wifi_scan_stop();             // a scan that is still running makes the join fail
+    WiFi.scanDelete();
+    WiFi.setAutoReconnect(true);      // let the radio retry by itself during the attempt
     WiFi.disconnect(false);
     WiFi.begin(ssid.c_str(), pass.c_str());
     server.send(200, "application/json", "{\"ok\":true,\"state\":\"connecting\"}");
@@ -349,13 +355,16 @@ void wifiKeepAlive() {
         savedSsid = trySsid; savedPass = tryPass;
         tryIp = WiFi.localIP().toString();
         wifiTry = WT_OK;
-        rebootAt = now + 8000;                                                 // leave time for the app to read the result, then restart cleanly
+        rebootAt = now + 6000;                                                 // leave time for the app to read the result, then restart cleanly
       } else {
+        // reasons: 15/202/204/14 = the password (handshake/auth) was refused, 201 = no network with that name in range
+        int rsn = lastDiscReason;
         const char* why = nullptr;
-        if (el > 5000 && st == WL_NO_SSID_AVAIL) why = "not_found";
-        else if (el > 4000 && st == WL_CONNECT_FAILED) why = "bad_password";
-        else if (el > 25000) why = "timeout";
-        if (why) { tryReason = why; wifiTry = WT_FAIL; WiFi.disconnect(false); }
+        if (el > 3000 && discCount >= 1 && (rsn == 15 || rsn == 202 || rsn == 204 || rsn == 14)) why = "bad_password";
+        else if (el > 9000 && rsn == 201) why = "not_found";
+        else if (el > 14000 && rsn == 0) why = "not_found";          // not even a disconnect event: nothing answered under that name
+        else if (el > 20000) why = "not_found";                       // never joined and never a password error: the name is wrong or out of range
+        if (why) { tryReason = why; wifiTry = WT_FAIL; WiFi.setAutoReconnect(false); WiFi.disconnect(false); Serial.printf("[wifi] join failed: %s (reason %d)\n", why, rsn); }
       }
     }
     return;
@@ -398,6 +407,7 @@ void setup() {
   Serial.begin(115200);
   WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t) { gotIpFlag = true; }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
   WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t info) {   // why the Wi-Fi dropped (2 auth expired, 15 handshake timeout, 201 network not found, 202 auth failed, 205 connection failed)
+    lastDiscReason = info.wifi_sta_disconnected.reason; discCount++;
     Serial.printf("[wifi] STA disconnected, reason %d\n", info.wifi_sta_disconnected.reason);
   }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
   WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t) { Serial.printf("[wifi] STA connected, ip %s rssi %d\n", WiFi.localIP().toString().c_str(), WiFi.RSSI()); }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
