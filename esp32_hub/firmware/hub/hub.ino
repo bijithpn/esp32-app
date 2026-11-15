@@ -270,6 +270,7 @@ void apiScan() {
 
 #include "remote.h"
 
+void startAP();
 volatile bool gotIpFlag = false;
 void startMdns() {
   MDNS.end();
@@ -300,7 +301,12 @@ void wifiKeepAlive() {
   }
   if (!downSince) downSince = now;
   if (now - downSince > 8000 && now - lastKick > 15000) { lastKick = now; WiFi.disconnect(); WiFi.begin(savedSsid.c_str(), savedPass.c_str()); }
-  if (now - downSince > 300000) rebootAt = now + 100;                          // 5 minutes without Wi-Fi: clean restart
+  if (now - downSince > 120000) {                                              // 2 minutes with no Wi-Fi: show pairing mode again
+    startAP();                                                                 // hotspot + setup screen; the saved Wi-Fi is kept and still retried
+    infoUntil = 0; msgUntil = 0;
+    switchScene(findScene("info"), JsonVariantConst(), false);
+    return;
+  }                          // 5 minutes without Wi-Fi: clean restart
 }
 
 void startAP() {
