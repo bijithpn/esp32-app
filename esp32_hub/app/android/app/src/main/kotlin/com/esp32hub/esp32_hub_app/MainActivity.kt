@@ -26,7 +26,7 @@ class MainActivity : FlutterActivity() {
                         result.success(enabled.contains(packageName))
                     }
                     // Pin this app to a Wi-Fi that has no internet (the board's hotspot), otherwise Android sends our traffic over mobile data.
-                    "bindWifi" -> result.success(bindWifiWithoutInternet())
+                    "bindWifi" -> result.success(bindWifiWithoutInternet(call.argument<Boolean>("force") ?: false))
                     "joinWifi" -> joinWifi(call.argument<String>("ssid") ?: "", call.argument<String>("pass") ?: "", result)
                     "leaveHotspot" -> {
                         val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -101,12 +101,13 @@ class MainActivity : FlutterActivity() {
     }
 
     @Suppress("DEPRECATION")
-    private fun bindWifiWithoutInternet(): Boolean {
+    private fun bindWifiWithoutInternet(force: Boolean): Boolean {
         return try {
             val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
             for (n in cm.allNetworks) {
                 val c = cm.getNetworkCapabilities(n) ?: continue
-                if (c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) && !c.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                // force = talking to the board on the local network: always use the Wi-Fi, even one Android thinks is "fine"
+                if (c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) && (force || !c.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED))) {
                     return cm.bindProcessToNetwork(n)
                 }
             }

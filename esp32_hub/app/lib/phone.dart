@@ -24,9 +24,9 @@ class PhoneBridge {
 
   /// If the phone is on a Wi-Fi that has no internet (such as the board's own hotspot) Android may send app traffic over
   /// mobile data instead, and then 192.168.4.1 can never be reached. This pins the app to that Wi-Fi. Returns true if it did.
-  static Future<bool> bindWifi() async {
+  static Future<bool> bindWifi({bool force = false}) async {
     try {
-      return (await _ch.invokeMethod<bool>('bindWifi')) ?? false;
+      return (await _ch.invokeMethod<bool>('bindWifi', {'force': force})) ?? false;
     } catch (_) {
       return false;
     }

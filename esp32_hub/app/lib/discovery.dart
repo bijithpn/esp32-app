@@ -49,7 +49,7 @@ class Discovery {
   /// Quick checks first (last known address, mDNS name, the board's own hotspot), then every address on the local
   /// network, 40 at a time. Reports each board as soon as it is found. `wantId` makes it stop at that board.
   static Stream<FoundBoard> scan({String? lastHost, String? wantId}) async* {
-    await PhoneBridge.bindWifi();   // a Wi-Fi without internet (the board's hotspot) must not lose to mobile data
+    await PhoneBridge.bindWifi(force: true);   // a Wi-Fi without internet (the board's hotspot) must not lose to mobile data
     final seen = <String>{};
     Future<FoundBoard?> one(String h) async {
       if (!seen.add(h)) return null;

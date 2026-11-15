@@ -558,7 +558,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      PhoneBridge.bindWifi();
+      PhoneBridge.bindWifi(force: _api is HttpApi);
       _refresh();
       _checkPerms();
     }

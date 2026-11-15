@@ -70,6 +70,7 @@ class _ManualConnectPageState extends State<ManualConnectPage> {
     final host = _host.text.trim();
     if (host.isEmpty) return;
     setState(() { _busy = true; _error = null; });
+    await PhoneBridge.bindWifi(force: true); // use the Wi-Fi, not mobile data, to reach the board
     try {
       var token = _token.text.trim();
       var api = HttpApi(host, token: token);
@@ -92,7 +93,7 @@ class _ManualConnectPageState extends State<ManualConnectPage> {
       if (token.isNotEmpty) { _mToken.text = token; await p.setString('mq_token', token); }
       if (mounted) _open(api, data);
     } catch (e) {
-      setState(() => _error = 'Could not connect to $host.\n$e\nCheck the IP shown on the display and that your phone is on the same Wi-Fi.');
+      setState(() => _error = 'Could not connect to $host.\n$e\nMake sure your phone is on the board\'s Wi-Fi (ESP32-Hub for a new board, otherwise your home Wi-Fi). If Android asks whether to stay connected to a Wi-Fi without internet, choose to stay connected.');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
