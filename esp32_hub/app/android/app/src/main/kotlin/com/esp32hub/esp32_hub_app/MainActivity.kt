@@ -3,7 +3,11 @@ package com.esp32hub.esp32_hub_app
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.net.wifi.WifiNetworkSpecifier
+import android.os.Build
 import android.location.LocationManager
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
@@ -23,6 +27,7 @@ class MainActivity : FlutterActivity() {
                     }
                     // Pin this app to a Wi-Fi that has no internet (the board's hotspot), otherwise Android sends our traffic over mobile data.
                     "bindWifi" -> result.success(bindWifiWithoutInternet())
+                    "joinWifi" -> joinWifi(call.argument<String>("ssid") ?: "", call.argument<String>("pass") ?: "", result)
                     "openBluetooth" -> {
                         startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                         result.success(null)
@@ -59,6 +64,37 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private var joinCallback: ConnectivityManager.NetworkCallback? = null
+
+    // Joins the board's hotspot straight from its QR code (Android 10+ asks the user to confirm once).
+    private fun joinWifi(ssid: String, pass: String, result: MethodChannel.Result) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || ssid.isEmpty()) { result.success(false); return }
+        try {
+            val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+            joinCallback?.let { runCatching { cm.unregisterNetworkCallback(it) } }
+            val spec = WifiNetworkSpecifier.Builder().setSsid(ssid).apply { if (pass.isNotEmpty()) setWpa2Passphrase(pass) }.build()
+            val req = NetworkRequest.Builder()
+                .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                .removeCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .setNetworkSpecifier(spec)
+                .build()
+            var replied = false
+            val cb = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    cm.bindProcessToNetwork(network)
+                    if (!replied) { replied = true; runOnUiThread { result.success(true) } }
+                }
+                override fun onUnavailable() {
+                    if (!replied) { replied = true; runOnUiThread { result.success(false) } }
+                }
+            }
+            joinCallback = cb
+            cm.requestNetwork(req, cb, 30000)
+        } catch (e: Exception) {
+            result.success(false)
+        }
     }
 
     @Suppress("DEPRECATION")

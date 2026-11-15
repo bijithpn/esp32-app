@@ -64,14 +64,14 @@ class _QrScanPageState extends State<QrScanPage> {
     for (final b in capture.barcodes) {
       final v = b.rawValue;
       if (v == null) continue;
-      if (PairInfo.parse(v) != null) {
+      if (PairInfo.parse(v) != null || HubWifiQr.parse(v) != null) {
         _done = true;
         HapticFeedback.mediumImpact();
         Navigator.of(context).pop(v);
         return;
       }
       if (_warn == null) {
-        setState(() => _warn = 'That QR code is not from an ESP32 Hub.');
+        setState(() => _warn = 'That QR code is not from an ESP32 Hub board.');
         Future.delayed(const Duration(seconds: 3), () { if (mounted) setState(() => _warn = null); });
       }
     }
@@ -134,7 +134,7 @@ class _QrScanPageState extends State<QrScanPage> {
                                   child: Column(mainAxisSize: MainAxisSize.min, children: [
                                     Text('Scan the code on your board', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
                                     SizedBox(height: 6),
-                                    Text('On the board open the "Pair (QR)" scene (or Settings > Show pairing QR on display), then hold the phone about 20 cm from the screen.',
+                                    Text('Scan the QR on a new board\'s SETUP screen, or the "Pair (QR)" scene. Hold the phone about 20 cm from the screen.',
                                         textAlign: TextAlign.center, style: TextStyle(color: HubColors.muted, fontSize: 13, height: 1.4)),
                                   ]),
                                 ),

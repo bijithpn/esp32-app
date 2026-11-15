@@ -163,7 +163,23 @@ class _StartPageState extends State<StartPage> {
   Future<void> _scanQr() async {
     FocusScope.of(context).unfocus();
     final v = await Navigator.of(context).push<String>(MaterialPageRoute(builder: (_) => const QrScanPage()));
-    final info = v == null ? null : PairInfo.parse(v);
+    if (v == null || !mounted) return;
+    final wifi = HubWifiQr.parse(v);
+    if (wifi != null) {
+      // The setup screen's QR: join the board's hotspot, then the normal search finds it and asks for the home Wi-Fi.
+      setState(() { _phase = _Phase.searching; _status = 'Joining the board\'s Wi-Fi…'; });
+      final ok = await PhoneBridge.joinWifi(wifi.ssid, wifi.pass);
+      if (!mounted) return;
+      if (ok) {
+        _skipAp = false;
+        _auto();
+      } else {
+        setState(() => _phase = _Phase.notFound);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not join automatically. Join "${wifi.ssid}" (password ${wifi.pass}) in your phone\'s Wi-Fi settings, then tap Search again.')));
+      }
+      return;
+    }
+    final info = PairInfo.parse(v);
     if (info == null) return;
     final p = await SharedPreferences.getInstance();
     await p.setString('host', info.ip);

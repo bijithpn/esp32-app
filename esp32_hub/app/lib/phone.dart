@@ -32,6 +32,15 @@ class PhoneBridge {
     }
   }
 
+  /// Joins a Wi-Fi network (Android 10+ shows one confirm dialog) and pins the app to it. Used for the board's hotspot QR.
+  static Future<bool> joinWifi(String ssid, String pass) async {
+    try {
+      return (await _ch.invokeMethod<bool>('joinWifi', {'ssid': ssid, 'pass': pass})) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   static Future<void> openBluetoothSettings() async {
     try {
       await _ch.invokeMethod('openBluetooth');
@@ -68,6 +77,24 @@ class PhoneBridge {
     } catch (_) {
       return null;
     }
+  }
+}
+
+/// The Wi-Fi QR code shown on a board in setup mode: WIFI:T:WPA;S:ESP32-Hub;P:hub12345;;
+class HubWifiQr {
+  HubWifiQr(this.ssid, this.pass);
+  final String ssid, pass;
+
+  static HubWifiQr? parse(String text) {
+    final t = text.trim();
+    if (!t.toUpperCase().startsWith('WIFI:')) return null;
+    String? field(String k) {
+      final m = RegExp('(?:^|;)$k:((?:\\\\.|[^;\\\\])*)').firstMatch(t.substring(5));
+      return m?.group(1)?.replaceAllMapped(RegExp(r'\\(.)'), (x) => x.group(1)!);
+    }
+    final ssid = field('S');
+    if (ssid == null || !ssid.startsWith('ESP32-Hub')) return null; // only the board's own hotspot
+    return HubWifiQr(ssid, field('P') ?? '');
   }
 }
 

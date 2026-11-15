@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api.dart';
 import 'main.dart';
+import 'phone.dart';
 import 'settings.dart';
 import 'theme.dart';
 
@@ -130,6 +131,20 @@ class _ManualConnectPageState extends State<ManualConnectPage> {
 
   Future<void> _scan() async {
     final v = await Navigator.of(context).push<String>(MaterialPageRoute(builder: (_) => const QrScanPage()));
+    final wifi = v == null ? null : HubWifiQr.parse(v);
+    if (wifi != null) {
+      setState(() { _busy = true; _error = null; });
+      final ok = await PhoneBridge.joinWifi(wifi.ssid, wifi.pass);
+      if (!mounted) return;
+      setState(() => _busy = false);
+      if (ok) {
+        setState(() { _host.text = '192.168.4.1'; _remote = false; });
+        await _connectLocal();
+      } else {
+        setState(() => _error = 'Could not join automatically. Join "${wifi.ssid}" (password ${wifi.pass}) in your phone\'s Wi-Fi settings, then tap Connect.');
+      }
+      return;
+    }
     final info = v == null ? null : PairInfo.parse(v);
     if (info == null) return;
     setState(() { _host.text = info.ip; _token.text = info.token; _mId.text = info.id; _mToken.text = info.token; _remote = false; });
