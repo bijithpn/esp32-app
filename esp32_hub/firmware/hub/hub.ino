@@ -24,7 +24,7 @@
 #include "esp_bt.h"
 #include "qrcode_lib.h"   // vendored copy of the MIT-licensed "QRCode" library (ESP-IDF ships a different qrcode.h)
 
-#define FW_VERSION "0.4.6"
+#define FW_VERSION "0.4.7"
 #define TFT_CS 15
 #define TFT_DC 2
 #define TFT_RST 4
@@ -432,6 +432,15 @@ void setup() {
   if (hubToken.length() < 8) { hubToken = genToken(); prefs.putString("token", hubToken); }
   lockOn = prefs.getBool("lock", false);
   String ssid = prefs.getString("ssid", ""), pass = prefs.getString("pass", "");
+#if __has_include("secrets.h")
+  #include "secrets.h"
+  // First boot only: use the Wi-Fi from secrets.h so the board comes online without app setup (the flag keeps "Forget Wi-Fi" working).
+  if (!prefs.getBool("seeded", false)) {
+    prefs.putBool("seeded", true);
+    if (!ssid.length() && strlen(WIFI_SSID)) { ssid = WIFI_SSID; pass = WIFI_PASS; prefs.putString("ssid", ssid); prefs.putString("pass", pass); Serial.println("[wifi] using the Wi-Fi from secrets.h"); }
+    if (!prefs.isKey("lat")) { prefs.putFloat("lat", atof(LATITUDE)); prefs.putFloat("lon", atof(LONGITUDE)); }
+  }
+#endif
   if (ssid == AP_SSID) {                          // an earlier version could save the board's own hotspot as its Wi-Fi: it can never join itself
     prefs.remove("ssid"); prefs.remove("pass");   // and retrying forever kept knocking the hotspot (and the phone) offline
     ssid = ""; pass = "";

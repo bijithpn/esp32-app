@@ -1,0 +1,4 @@
+# local secrets: never commit these
+secrets.h
+**/secrets.h
+!**/secrets.h.example
