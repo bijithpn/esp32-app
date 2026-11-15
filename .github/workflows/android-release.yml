@@ -60,7 +60,6 @@ jobs:
           path: esp32_hub/app/build/app/outputs/flutter-apk/esp32_hub-*.apk
 
       - name: Publish GitHub release
-        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.ver.outputs.full }}
