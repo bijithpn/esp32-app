@@ -317,7 +317,7 @@ bool hubCoreCmd(const char* cmd, JsonDocument& d, JsonDocument& r) {
     JsonObject w = r["weather"].to<JsonObject>();
     w["lat"] = wLat; w["lon"] = wLon; w["code"] = wCode;
     if (!isnan(wTemp)) { w["temp"] = wTemp; w["humidity"] = wHum; w["wind"] = wWind; }
-    w["ageSec"] = wLast ? (now - wLast) / 1000 : -1;
+    w["ageSec"] = wLast ? (int)((now - wLast) / 1000) : -1;
     r["scene"] = SCENES[curScene].id; r["dim"] = dimLevel; r["rev"] = stateRev;
     return true;
   }
