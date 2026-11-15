@@ -359,7 +359,8 @@ void wifiKeepAlive() {
   if (!savedSsid.length()) return;
   if (apMode) {
     if (WiFi.status() == WL_CONNECTED) { rebootAt = now + 300; return; }     // joined: restart cleanly into normal mode
-    if (WiFi.softAPgetStationNum() == 0 && now - lastKick > 45000) { lastKick = now; WiFi.begin(savedSsid.c_str(), savedPass.c_str()); }
+    if (lastKick && now - lastKick > 12000 && now - lastKick < 20000) WiFi.disconnect(false);   // attempt over: stop hopping channels so the hotspot stays visible
+    if (WiFi.softAPgetStationNum() == 0 && now - lastKick > 60000) { lastKick = now; WiFi.begin(savedSsid.c_str(), savedPass.c_str()); }
     return;
   }
   if (WiFi.status() == WL_CONNECTED) {
@@ -380,7 +381,12 @@ void wifiKeepAlive() {
 void startAP() {
   apMode = true;
   WiFi.mode(WIFI_AP_STA);
-  WiFi.softAP(AP_SSID, AP_PASS);
+  bool ok = WiFi.softAP(AP_SSID, AP_PASS, 6);
+  Serial.printf("[wifi] softAP %s ssid=%s ip=%s heap=%u\n", ok ? "ok" : "FAILED", AP_SSID, WiFi.softAPIP().toString().c_str(), ESP.getFreeHeap());
+  // A STA that keeps retrying a saved network makes the radio hop channels, and then the hotspot is barely visible
+  // ("Wi-Fi not available" when scanning its QR). Stop the constant retries; wifiKeepAlive tries again briefly now and then.
+  WiFi.setAutoReconnect(false);
+  WiFi.disconnect(false);
   WiFi.scanNetworks(true);   // async, used for the setup page list
 }
 
