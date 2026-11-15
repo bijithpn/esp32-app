@@ -28,6 +28,9 @@ jobs:
           distribution: temurin
           java-version: 21
 
+      # Caches Gradle's downloaded plugins/dependencies, so most runs never touch Maven Central (which rate-limits CI with HTTP 429).
+      - uses: gradle/actions/setup-gradle@v4
+
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: 3.50.0
@@ -44,7 +47,14 @@ jobs:
       - run: flutter pub get
 
       - name: Build release APK
-        run: flutter build apk --release --split-per-abi
+        # Maven Central sometimes answers 429 / 5xx to shared CI runners: retry with a growing pause instead of failing the release.
+        run: |
+          for attempt in 1 2 3 4; do
+            if flutter build apk --release --split-per-abi; then exit 0; fi
+            echo "Build attempt $attempt failed; waiting before retrying"
+            sleep $((attempt * 45))
+          done
+          exit 1
 
       - name: Rename APKs
         run: |
