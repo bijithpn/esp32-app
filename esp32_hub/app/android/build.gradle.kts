@@ -22,3 +22,14 @@ subprojects {
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }
+
+// Lint-vital runs on release builds and crashes inside third-party plugins
+// (e.g. image_picker_android) when the lint engine hits a newer-JDK API.
+// It is not needed for producing the APK, so skip it.
+gradle.projectsEvaluated {
+    rootProject.allprojects {
+        tasks.matching { it.name.startsWith("lintVital") }.configureEach {
+            enabled = false
+        }
+    }
+}
