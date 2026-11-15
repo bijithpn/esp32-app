@@ -112,13 +112,7 @@ class _StartPageState extends State<StartPage> {
       if (_skipAp) return false;
       // The phone is on the board's own hotspot: this board still needs Wi-Fi. Do it right here.
       if (!mounted) return true;
-      setState(() => _status = 'Found a new board. Let\'s get it online.');
-      final api = HttpApi(f.host);
-      final found = await Navigator.of(context).push<FoundBoard>(MaterialPageRoute(builder: (_) => WifiSetupPage(api: api, boardId: f.id)));
-      _skipAp = true;
-      // The setup page already found the board on the home Wi-Fi: connect straight to it instead of searching again.
-      if (found != null && mounted && !found.ap && await _connectTo(found, p)) return true;
-      if (mounted) _auto();
+      await _setupBoard(f, p);
       return true;
     }
     setState(() => _status = 'Found it! Connecting…');
@@ -169,6 +163,30 @@ class _StartPageState extends State<StartPage> {
     );
   }
 
+  /// The phone is on the board's hotspot: open the Wi-Fi setup for it, and when that is done connect straight to the board.
+  Future<void> _setupBoard(FoundBoard f, SharedPreferences p) async {
+    if (!mounted) return;
+    setState(() => _status = 'Found a new board. Let\'s get it online.');
+    final found = await Navigator.of(context).push<FoundBoard>(MaterialPageRoute(builder: (_) => WifiSetupPage(api: HttpApi(f.host), boardId: f.id)));
+    _skipAp = true;
+    // The setup page already found the board on the home Wi-Fi: connect straight to it instead of searching again.
+    if (found != null && mounted && !found.ap && await _connectTo(found, p)) return;
+    if (mounted) _auto();
+  }
+
+  /// Right after joining the board's hotspot the phone may not have an address yet, so keep asking the board
+  /// (192.168.4.1) for a while instead of giving up on the first try.
+  Future<FoundBoard?> _waitForHotspotBoard() async {
+    final run = ++_run;
+    for (var i = 0; i < 20 && mounted && run == _run; i++) {
+      await PhoneBridge.bindWifi(force: true);
+      final f = await Discovery.probe('192.168.4.1', timeout: const Duration(seconds: 2));
+      if (f != null) return f;
+      await Future.delayed(const Duration(seconds: 1));
+    }
+    return null;
+  }
+
   Future<void> _scanQr() async {
     FocusScope.of(context).unfocus();
     final v = await Navigator.of(context).push<String>(MaterialPageRoute(builder: (_) => const QrScanPage()));
@@ -181,7 +199,15 @@ class _StartPageState extends State<StartPage> {
       if (!mounted) return;
       if (ok) {
         _skipAp = false;
-        _auto();
+        setState(() => _status = 'Connected to the board\'s Wi-Fi. Opening setup…');
+        final f = await _waitForHotspotBoard();
+        if (!mounted) return;
+        if (f != null) {
+          await _setupBoard(f, await SharedPreferences.getInstance());
+        } else {
+          setState(() => _phase = _Phase.notFound);
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Joined the board\'s Wi-Fi, but it did not answer. Wait a few seconds and tap Search again.')));
+        }
       } else {
         setState(() => _phase = _Phase.notFound);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not join automatically. Join "${wifi.ssid}" (password ${wifi.pass}) in your phone\'s Wi-Fi settings, then tap Search again.')));

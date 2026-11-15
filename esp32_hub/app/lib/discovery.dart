@@ -57,7 +57,13 @@ class Discovery {
     }
 
     final quick = [if (lastHost != null && lastHost.isNotEmpty) lastHost, 'esp32-hub.local', '192.168.4.1'];
-    for (final f in await Future.wait(quick.map(one))) {
+    // the board's hotspot address gets a second, longer try: right after joining it the phone can still be setting up
+    final first = await Future.wait(quick.map(one));
+    if (first.every((f) => f == null)) {
+      final again = await probe('192.168.4.1', timeout: const Duration(seconds: 2));
+      if (again != null) first[quick.length - 1] = again;
+    }
+    for (final f in first) {
       if (f != null) {
         yield f;
         if (wantId == null || f.id == wantId) return;
