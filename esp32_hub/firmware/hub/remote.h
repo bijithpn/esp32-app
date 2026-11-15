@@ -164,6 +164,7 @@ void bleLoop() {
   String in = bleIn;
   JsonDocument d, r;
   if (deserializeJson(d, in)) { r["ok"] = false; r["error"] = "bad json"; }
+  else if (d["ssid"].is<const char*>() && String(d["ssid"] | "") == AP_SSID) { r["ok"] = false; r["error"] = "that is the board's own hotspot, pick your home Wi-Fi"; }
   else if (d["ssid"].is<const char*>()) {            // Wi-Fi provisioning
     if (!(apMode || !lockOn || hubToken == String(d["t"] | ""))) { r["ok"] = false; r["error"] = "locked: token required"; }
     else {

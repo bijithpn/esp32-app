@@ -138,12 +138,12 @@ void info_frame() {
   cv.setTextWrap(false);
   if (apMode) {
     // ---- first-time setup: scan the QR with the phone camera to join the board's hotspot ----
-    const int m = 3, box = wifiQr.size * m + 8, ox = 2, oy = 2;
-    cv.fillRoundRect(ox, oy, box, box, 4, rgb(255, 255, 255));
+    const int m = 3, q = 7, box = wifiQr.size * m + 2 * q, ox = 1, oy = (H - box) / 2;   // q = white margin: scanners need it to find the code
+    cv.fillRect(ox, oy, box, box, rgb(255, 255, 255));
     for (int y = 0; y < wifiQr.size; y++)
       for (int x = 0; x < wifiQr.size; x++)
-        if (qrcode_getModule(&wifiQr, x, y)) cv.fillRect(ox + 4 + x * m, oy + 4 + y * m, m, m, 0);
-    int rx = box + 6;                       // text column is 160-rx = ~60 px = 10 characters at size 1
+        if (qrcode_getModule(&wifiQr, x, y)) cv.fillRect(ox + q + x * m, oy + q + y * m, m, m, 0);
+    int rx = box + 5;                       // text column is 160-rx = ~54 px = 9 characters at size 1
     cv.setTextSize(1);
     cv.setTextColor(rgb(60, 220, 255)); cv.setCursor(rx, 8); cv.print(savedSsid.length() ? "NO WI-FI" : "SETUP");
     cv.setTextColor(rgb(255, 255, 255)); cv.setCursor(rx, 26); cv.print("1 Scan QR");

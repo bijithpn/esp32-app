@@ -46,6 +46,13 @@ class _StartPageState extends State<StartPage> {
   bool _remoteSaved = false;
   int _run = 0;
 
+  /// Says what was searched, so "not found" is never a mystery.
+  String get _why {
+    final nets = Discovery.lastPrefixes;
+    if (nets.isEmpty) return 'Your phone does not seem to be on a Wi-Fi network. Turn Wi-Fi on and join the same network as the board.';
+    return 'Searched ${nets.map((n) => '$n.x').join(', ')}. The board was not there. Check that it is powered, and that it is on this same Wi-Fi (its screen shows an IP address when it is).';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -214,7 +221,7 @@ class _StartPageState extends State<StartPage> {
                 Text(searching ? _status : 'Can\'t find your board', textAlign: TextAlign.center, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700, height: 1.2)),
                 const SizedBox(height: 10),
                 Text(
-                  searching ? 'Keep the board powered on and your phone on the same Wi-Fi.' : 'It needs power, and your phone has to be on the same Wi-Fi network.',
+                  searching ? 'Keep the board powered on and your phone on the same Wi-Fi.' : _why,
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: HubColors.muted, fontSize: 15, height: 1.45),
                 ),
@@ -324,6 +331,8 @@ class _WifiSetupPageState extends State<WifiSetupPage> {
     switch (reason) {
       case 'bad_password':
         return 'The password was not accepted. Check it and try again.';
+      case 'own_hotspot':
+        return 'That is the board\'s own hotspot. Choose your home Wi-Fi (the one your phone normally uses).';
       case 'not_found':
         return 'The board can\'t see that network. It only works with 2.4 GHz Wi-Fi, and it must be within range.';
       default:
@@ -346,6 +355,12 @@ class _WifiSetupPageState extends State<WifiSetupPage> {
     }
     if (!mounted) return;
 
+    if (r['state'] == 'fail') {
+      setState(() => _join = _Join.form);
+      _say(_why('${r['reason']}'), error: true);
+      _scan();
+      return;
+    }
     if (r['state'] == 'connecting') {
       final res = await _pollJoin(ssid);
       if (!mounted) return;

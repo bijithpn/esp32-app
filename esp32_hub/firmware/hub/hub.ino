@@ -23,7 +23,7 @@
 #include "esp_bt.h"
 #include "qrcode_lib.h"   // vendored copy of the MIT-licensed "QRCode" library (ESP-IDF ships a different qrcode.h)
 
-#define FW_VERSION "0.4.1"
+#define FW_VERSION "0.4.2"
 #define TFT_CS 15
 #define TFT_DC 2
 #define TFT_RST 4
@@ -252,6 +252,10 @@ void apiWifi() {
     json = true;
   }
   if (!ssid.length()) { server.send(400, "text/plain", "ssid required"); return; }
+  if (ssid == AP_SSID) {
+    server.send(200, "application/json", "{\"ok\":false,\"state\":\"fail\",\"reason\":\"own_hotspot\"}");
+    return;
+  }
   if (apMode && json) {
     // Try it right now while the hotspot stays up, so the app can show whether it worked (see wifiKeepAlive).
     trySsid = ssid; tryPass = pass; tryIp = ""; tryReason = "";
@@ -298,7 +302,7 @@ void apiScan() {
     String names[24]; int rs[24]; int m = 0;
     for (int i = 0; i < n; i++) {
       String s = WiFi.SSID(i);
-      if (!s.length()) continue;
+      if (!s.length() || s == AP_SSID) continue;
       int r = WiFi.RSSI(i);
       bool dup = false;
       for (int j = 0; j < m; j++) if (names[j] == s) { dup = true; if (r > rs[j]) rs[j] = r; break; }
@@ -393,6 +397,10 @@ void startAP() {
 void setup() {
   Serial.begin(115200);
   WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t) { gotIpFlag = true; }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
+  WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t info) {   // why the Wi-Fi dropped (2 auth expired, 15 handshake timeout, 201 network not found, 202 auth failed, 205 connection failed)
+    Serial.printf("[wifi] STA disconnected, reason %d\n", info.wifi_sta_disconnected.reason);
+  }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
+  WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t) { Serial.printf("[wifi] STA connected, ip %s rssi %d\n", WiFi.localIP().toString().c_str(), WiFi.RSSI()); }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
   SPI.begin(TFT_SCK, -1, TFT_MOSI, -1);   // CS is driven by the display library, not the SPI peripheral
   tft.initR(TAB);
   tft.setRotation(1);
@@ -406,6 +414,11 @@ void setup() {
   if (hubToken.length() < 8) { hubToken = genToken(); prefs.putString("token", hubToken); }
   lockOn = prefs.getBool("lock", false);
   String ssid = prefs.getString("ssid", ""), pass = prefs.getString("pass", "");
+  if (ssid == AP_SSID) {                          // an earlier version could save the board's own hotspot as its Wi-Fi: it can never join itself
+    prefs.remove("ssid"); prefs.remove("pass");   // and retrying forever kept knocking the hotspot (and the phone) offline
+    ssid = ""; pass = "";
+    Serial.println("[wifi] removed the saved network 'ESP32-Hub' (that is the board's own hotspot)");
+  }
   // Keep Bluetooth only for first-time setup (no Wi-Fi saved) or when the user enabled it; otherwise give its RAM back.
   bleAvailable = prefs.getBool("ble", false) || !ssid.length();
 
@@ -421,7 +434,8 @@ void setup() {
       bootScreen("Joining Wi-Fi", ssid.substring(0, 24).c_str(), (int)((millis() - t0) * 90 / 20000));
       delay(60);
     }
-  } else bootScreen("Setup mode", "starting hotspot", 50);
+    Serial.printf("[wifi] saved network '%s' (%u chars password): %s\n", ssid.c_str(), (unsigned)pass.length(), WiFi.status() == WL_CONNECTED ? "joined" : "NOT joined");
+  } else { Serial.println("[wifi] no saved network"); bootScreen("Setup mode", "starting hotspot", 50); }
   // Bluetooth stays available when it was asked for, when there is no Wi-Fi saved, or when the saved Wi-Fi could not be joined
   // (so the app can always fix the Wi-Fi). Otherwise its RAM goes back to the system.
   if (WiFi.status() != WL_CONNECTED) bleAvailable = true;

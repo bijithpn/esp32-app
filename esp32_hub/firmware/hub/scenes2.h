@@ -352,21 +352,21 @@ QRCode pairQr; uint8_t pairQrBuf[256]; String pairText;
 void pair_begin(JsonVariantConst) {
   pairText = String("hub://pair?id=") + deviceId + "&t=" + hubToken + "&ip=" +
              (apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString());
-  qrcode_initText(&pairQr, pairQrBuf, 5, ECC_LOW, pairText.c_str());
+  qrcode_initText(&pairQr, pairQrBuf, 4, ECC_LOW, pairText.c_str());
 }
 void pair_frame() {
   cv.fillScreen(0);
-  const int m = 3, box = pairQr.size * m + 8, ox = 4, oy = (H - box) / 2;
+  const int m = 3, q = 8, box = pairQr.size * m + 2 * q, ox = 2, oy = (H - box) / 2;   // q = white margin: scanners need it
   cv.fillRect(ox, oy, box, box, ST77XX_WHITE);
   for (int y = 0; y < pairQr.size; y++)
     for (int x = 0; x < pairQr.size; x++)
-      if (qrcode_getModule(&pairQr, x, y)) cv.fillRect(ox + 4 + x * m, oy + 4 + y * m, m, m, 0);
+      if (qrcode_getModule(&pairQr, x, y)) cv.fillRect(ox + q + x * m, oy + q + y * m, m, m, 0);
   cv.setTextSize(1); cv.setTextColor(rgb(60, 220, 255));
-  cv.setCursor(box + 8, 14); cv.print("SCAN");
-  cv.setCursor(box + 8, 26); cv.print("with");
-  cv.setCursor(box + 8, 38); cv.print("app");
+  cv.setCursor(box + 6, 14); cv.print("SCAN");
+  cv.setCursor(box + 6, 26); cv.print("with");
+  cv.setCursor(box + 6, 38); cv.print("app");
   cv.setTextColor(lockOn ? rgb(80, 230, 120) : rgb(255, 200, 80));
-  cv.setCursor(box + 8, 70); cv.print(lockOn ? "LOCK" : "open");
+  cv.setCursor(box + 6, 70); cv.print(lockOn ? "LOCK" : "open");
 }
 
 // ============================ REGISTRY ============================

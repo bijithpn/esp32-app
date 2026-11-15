@@ -128,7 +128,7 @@ class HttpApi extends Api {
   /// Networks the board can see, strongest first (empty while it is still scanning).
   Future<List<String>> scanNetworks() async {
     final r = await http.get(_u('/api/scan')).timeout(const Duration(seconds: 5));
-    return (jsonDecode(r.body) as List).map((e) => '$e').toSet().toList();
+    return (jsonDecode(r.body) as List).map((e) => '$e').where((n) => !n.startsWith('ESP32-Hub')).toSet().toList();   // never offer the board's own hotspot
   }
 }
 

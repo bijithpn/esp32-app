@@ -16,6 +16,9 @@ class FoundBoard {
 /// Finds ESP32 Hubs without anyone typing an IP address.
 /// The board answers GET /api/hello (tiny, always open, never reveals the token).
 class Discovery {
+  /// Networks the last scan looked at (e.g. ["192.168.1"]), so the app can say what it searched. Empty = phone has no Wi-Fi/IP.
+  static List<String> lastPrefixes = [];
+
   /// Asks one address whether it is a hub. Returns null if not (or no answer in time).
   static Future<FoundBoard?> probe(String host, {Duration timeout = const Duration(milliseconds: 1200)}) async {
     try {
@@ -60,7 +63,8 @@ class Discovery {
         if (wantId == null || f.id == wantId) return;
       }
     }
-    for (final pre in await _prefixes()) {
+    lastPrefixes = await _prefixes();
+    for (final pre in lastPrefixes) {
       final hosts = [for (var i = 1; i < 255; i++) '$pre.$i'];
       for (var i = 0; i < hosts.length; i += 40) {
         final chunk = hosts.sublist(i, i + 40 > hosts.length ? hosts.length : i + 40);
