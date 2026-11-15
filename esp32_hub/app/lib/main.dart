@@ -433,8 +433,19 @@ class _WifiSetupPageState extends State<WifiSetupPage> {
         if (errors >= 3) {
           _say('Looking for the board on your Wi-Fi…');
           await for (final f in Discovery.scan(wantId: widget.boardId)) {
-            if (!f.ap && f.id == widget.boardId) return (kind: 'ok', reason: null, ip: f.host, found: f);
+            if (f.ap || f.id != widget.boardId) continue;
+            // The board is reachable again, but on which network? Ask it how the attempt went: after a failed try an online
+            // board goes back to its old network, after a successful one it restarts (no attempt on record any more).
+            try {
+              final s = await HttpApi(f.host).wifiStatus();
+              if (s['state'] == 'fail') return (kind: 'fail', reason: '${s['reason']}', ip: null, found: null);
+              if (s['state'] == 'connecting') break; // still trying: keep polling
+            } catch (_) {
+              continue;
+            }
+            return (kind: 'ok', reason: null, ip: f.host, found: f);
           }
+          errors = 0;
         }
       }
       await Future.delayed(const Duration(milliseconds: 1500));

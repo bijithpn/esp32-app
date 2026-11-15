@@ -24,7 +24,7 @@
 #include "esp_bt.h"
 #include "qrcode_lib.h"   // vendored copy of the MIT-licensed "QRCode" library (ESP-IDF ships a different qrcode.h)
 
-#define FW_VERSION "0.4.5"
+#define FW_VERSION "0.4.6"
 #define TFT_CS 15
 #define TFT_DC 2
 #define TFT_RST 4
@@ -258,17 +258,19 @@ void apiWifi() {
     server.send(200, "application/json", "{\"ok\":false,\"state\":\"fail\",\"reason\":\"own_hotspot\"}");
     return;
   }
-  if (apMode && json) {
-    // Try it right now while the hotspot stays up, so the app can show whether it worked (see wifiKeepAlive).
+  if (json) {
+    // Try the network first (see wifiKeepAlive). From the setup hotspot the hotspot stays up so the app can read the result;
+    // on a board that is already online a failed try goes back to the old network, so a typo never strands it.
     trySsid = ssid; tryPass = pass; tryIp = ""; tryReason = "";
     wifiTry = WT_TRY; wifiTryAt = millis();
     lastDiscReason = 0; discCount = 0;
+    server.send(200, "application/json", "{\"ok\":true,\"state\":\"connecting\"}");   // answer first: the radio may leave the app's network now
+    delay(50);
     esp_wifi_scan_stop();             // a scan that is still running makes the join fail
     WiFi.scanDelete();
     WiFi.setAutoReconnect(true);      // let the radio retry by itself during the attempt
     WiFi.disconnect(false);
     WiFi.begin(ssid.c_str(), pass.c_str());
-    server.send(200, "application/json", "{\"ok\":true,\"state\":\"connecting\"}");
     return;
   }
   prefs.putString("ssid", ssid);
@@ -346,11 +348,12 @@ void wifiKeepAlive() {
   uint32_t now = millis();
   if (now - lastChk < 1000) return;
   lastChk = now;
-  if (apMode && wifiTry != WT_IDLE) {                                          // a join started from the app is in progress
-    if (wifiTry == WT_TRY) {
+  if (wifiTry == WT_OK) return;                                                // joined: waiting for the restart
+  if (wifiTry == WT_TRY) {                                                     // a join started from the app is in progress
+    {
       wl_status_t st = WiFi.status();
       uint32_t el = now - wifiTryAt;
-      if (st == WL_CONNECTED) {
+      if (st == WL_CONNECTED && WiFi.SSID() == trySsid) {   // (an online board is still on the old network for a moment)
         prefs.putString("ssid", trySsid); prefs.putString("pass", tryPass);    // saved only now that it works
         savedSsid = trySsid; savedPass = tryPass;
         tryIp = WiFi.localIP().toString();
@@ -364,7 +367,12 @@ void wifiKeepAlive() {
         else if (el > 9000 && rsn == 201) why = "not_found";
         else if (el > 14000 && rsn == 0) why = "not_found";          // not even a disconnect event: nothing answered under that name
         else if (el > 20000) why = "not_found";                       // never joined and never a password error: the name is wrong or out of range
-        if (why) { tryReason = why; wifiTry = WT_FAIL; WiFi.setAutoReconnect(false); WiFi.disconnect(false); Serial.printf("[wifi] join failed: %s (reason %d)\n", why, rsn); }
+        if (why) {
+          tryReason = why; wifiTry = WT_FAIL; WiFi.disconnect(false);
+          Serial.printf("[wifi] join failed: %s (reason %d)\n", why, rsn);
+          if (!apMode && savedSsid.length()) { WiFi.setAutoReconnect(true); WiFi.begin(savedSsid.c_str(), savedPass.c_str()); downSince = 0; }   // back to the old network
+          else WiFi.setAutoReconnect(false);
+        }
       }
     }
     return;
