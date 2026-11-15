@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.esp32hub.esp32_hub_app"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

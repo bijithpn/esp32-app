@@ -1,0 +1,71 @@
+name: Android Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - esp32_hub/app/pubspec.yaml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: esp32_hub/app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.50.0
+          channel: stable
+          cache: true
+
+      - name: Read version from pubspec
+        id: ver
+        run: |
+          full=$(grep -m1 '^version:' pubspec.yaml | awk '{print $2}')
+          echo "full=$full" >> "$GITHUB_OUTPUT"
+          echo "name=${full%%+*}" >> "$GITHUB_OUTPUT"
+
+      - run: flutter pub get
+
+      - name: Build release APK
+        run: flutter build apk --release --split-per-abi
+
+      - name: Rename APKs
+        run: |
+          cd build/app/outputs/flutter-apk
+          for f in app-*-release.apk; do
+            mv "$f" "esp32_hub-${{ steps.ver.outputs.name }}-${f#app-}"
+          done
+          ls -l
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: esp32-hub-apk-${{ steps.ver.outputs.full }}
+          path: esp32_hub/app/build/app/outputs/flutter-apk/esp32_hub-*.apk
+
+      - name: Publish GitHub release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.full }}
+          name: ESP32 Hub ${{ steps.ver.outputs.name }} (build ${{ steps.ver.outputs.full }})
+          target_commitish: ${{ github.sha }}
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          files: esp32_hub/app/build/app/outputs/flutter-apk/esp32_hub-*.apk
