@@ -24,7 +24,7 @@
 #include "esp_bt.h"
 #include "qrcode_lib.h"   // vendored copy of the MIT-licensed "QRCode" library (ESP-IDF ships a different qrcode.h)
 
-#define FW_VERSION "0.4.7"
+#define FW_VERSION "0.5.0"
 #define TFT_CS 15
 #define TFT_DC 2
 #define TFT_RST 4
@@ -43,6 +43,8 @@ WebServer server(80);
 
 long tzSec = 19800;           // default IST (+5:30); change with {"cmd":"tz","sec":...}
 bool apMode = false;
+bool hotspotOn = false;       // "pairing mode": the ESP32-Hub hotspot is up while the board stays on the home Wi-Fi
+uint32_t hotspotUntil = 0;
 String msgText = "Hello!";    // shown by the "message" scene
 String msgApp = "", msgTitle = "";   // set for notification cards (see "notify")
 String hubToken, deviceId;    // security token (16 hex) and 6-char id from the MAC
@@ -66,6 +68,7 @@ String trySsid, tryPass, tryIp, tryReason;
 volatile int lastDiscReason = 0, discCount = 0;   // last Wi-Fi disconnect reason and how many since the join started (see the event handler in setup)
 void mqttApply();
 void bleStart();
+void startHotspot();
 void bleStop();
 int findScene(const char* id);
 void switchScene(int idx, JsonVariantConst args, bool save = true);
@@ -218,6 +221,9 @@ void runCmd(JsonDocument& d, JsonDocument& r) {
     rebootAt = millis() + 500;
   } else if (!strcmp(cmd, "pair")) {
     gotoScene("pair");
+  } else if (!strcmp(cmd, "pairing")) {           // turn the hotspot + Wi-Fi QR on (10 minutes) without leaving the home Wi-Fi
+    startHotspot();
+    r["hotspot"] = AP_SSID;
   } else if (extraCmd(cmd, d, r)) {
     // handled by scenes2.h
   } else { r["ok"] = false; r["error"] = "unknown cmd"; }
@@ -348,6 +354,12 @@ void wifiKeepAlive() {
   uint32_t now = millis();
   if (now - lastChk < 1000) return;
   lastChk = now;
+  if (hotspotOn && (int32_t)(now - hotspotUntil) > 0) {                         // pairing mode over
+    hotspotOn = false;
+    WiFi.softAPdisconnect(true);
+    WiFi.mode(WIFI_STA);
+    Serial.println("[wifi] pairing mode ended");
+  }
   if (wifiTry == WT_OK) return;                                                // joined: waiting for the restart
   if (wifiTry == WT_TRY) {                                                     // a join started from the app is in progress
     {
@@ -399,6 +411,19 @@ void wifiKeepAlive() {
   }                          // 5 minutes without Wi-Fi: clean restart
 }
 
+// Pairing mode: ESP32-Hub hotspot alongside the home Wi-Fi (the hotspot follows the router's channel). Off again after 10 minutes.
+void startHotspot() {
+  if (apMode) return;                              // setup mode already has the hotspot
+  hotspotOn = true;
+  hotspotUntil = millis() + 600000;
+  if (WiFi.getMode() != WIFI_AP_STA) WiFi.mode(WIFI_AP_STA);
+  int ch = WiFi.status() == WL_CONNECTED ? WiFi.channel() : 6;
+  bool ok = WiFi.softAP(AP_SSID, AP_PASS, ch ? ch : 6);
+  Serial.printf("[wifi] pairing mode: hotspot %s on channel %d\n", ok ? "up" : "FAILED", ch);
+  infoUntil = 0; msgUntil = 0;
+  switchScene(findScene("info"), JsonVariantConst(), false);   // shows the Wi-Fi QR
+}
+
 void startAP() {
   apMode = true;
   WiFi.mode(WIFI_AP_STA);
@@ -413,6 +438,7 @@ void startAP() {
 
 void setup() {
   Serial.begin(115200);
+  pinMode(0, INPUT_PULLUP);                        // BOOT button: hold 1.5 s for pairing mode
   WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t) { gotIpFlag = true; }, ARDUINO_EVENT_WIFI_STA_GOT_IP);
   WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t info) {   // why the Wi-Fi dropped (2 auth expired, 15 handshake timeout, 201 network not found, 202 auth failed, 205 connection failed)
     lastDiscReason = info.wifi_sta_disconnected.reason; discCount++;
@@ -537,6 +563,11 @@ void serialConsole() {
 
 void loop() {
   serialConsole();
+  {                                                // hold the BOOT button for 1.5 s: pairing mode (hotspot + Wi-Fi QR)
+    static uint32_t downAt = 0;
+    if (digitalRead(0) == LOW) { if (!downAt) downAt = millis(); else if (millis() - downAt > 1500 && !hotspotOn && !apMode) { downAt = 0xFFFFFFFF - 5000; startHotspot(); } }
+    else downAt = 0;
+  }
   server.handleClient();
   static uint32_t lastLog = 0;
   if (millis() - lastLog > 15000) { lastLog = millis(); Serial.printf("[hub] scene=%s heap=%u mqtt=%s\n", SCENES[curScene].id, ESP.getFreeHeap(), mqttOn ? (mqtt.connected() ? "up" : "down") : "off"); }

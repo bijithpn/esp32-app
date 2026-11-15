@@ -333,4 +333,7 @@ BLE advertising seen from a computer; memory stays flat during the tests; no reb
 - Bluetooth setup was removed from the app; the board keeps Bluetooth off by default, which frees about 60 KB of RAM.
 - The Android app pins itself to a Wi-Fi without internet (the board's hotspot) so Android does not send traffic over mobile data.
 - Notification access on Android 13+ for sideloaded apps: App info > ⋮ > Allow restricted settings.
+- **Pairing mode** (firmware 0.5.0): hold the board's BOOT button for 1.5 s, or use the app menu "Pairing mode", to switch the
+  `ESP32-Hub` hotspot (password `hub12345`) on for 10 minutes while the board stays on your Wi-Fi. The screen shows the Wi-Fi QR.
+- **First boot Wi-Fi**: copy `firmware/hub/secrets.h.example` to `secrets.h` (git-ignored) to give a new board your Wi-Fi without app setup.
 

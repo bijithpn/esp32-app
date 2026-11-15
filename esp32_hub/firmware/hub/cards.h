@@ -125,7 +125,7 @@ void drawWifiBars(int x, int y, int rssi, uint16_t on) {
 int infoFrame = 0;
 void info_begin(JsonVariantConst) {
   infoFrame = 0; faceSet(M_HAPPY); faceSnap();
-  if (apMode && !wifiQrReady) {
+  if ((apMode || hotspotOn) && !wifiQrReady) {
     String s = String("WIFI:T:WPA;S:") + AP_SSID + ";P:" + AP_PASS + ";;";
     qrcode_initText(&wifiQr, wifiQrBuf, 3, ECC_LOW, s.c_str());
     wifiQrReady = true;
@@ -152,7 +152,7 @@ void info_frame() {
     cv.setTextColor(rgb(80, 230, 140)); cv.setCursor(20, H - 14); cv.print("Connected to the app");
     return;
   }
-  if (apMode) {
+  if (apMode || hotspotOn) {
     // ---- first-time setup: scan the QR with the phone camera to join the board's hotspot ----
     const int m = 3, q = 7, box = wifiQr.size * m + 2 * q, ox = 1, oy = (H - box) / 2;   // q = white margin: scanners need it to find the code
     cv.fillRect(ox, oy, box, box, rgb(255, 255, 255));
@@ -161,7 +161,7 @@ void info_frame() {
         if (qrcode_getModule(&wifiQr, x, y)) cv.fillRect(ox + q + x * m, oy + q + y * m, m, m, 0);
     int rx = box + 5;                       // text column is 160-rx = ~54 px = 9 characters at size 1
     cv.setTextSize(1);
-    cv.setTextColor(rgb(60, 220, 255)); cv.setCursor(rx, 8); cv.print(savedSsid.length() ? "NO WI-FI" : "SETUP");
+    cv.setTextColor(rgb(60, 220, 255)); cv.setCursor(rx, 8); cv.print(hotspotOn ? "PAIRING" : savedSsid.length() ? "NO WI-FI" : "SETUP");
     cv.setTextColor(rgb(255, 255, 255)); cv.setCursor(rx, 26); cv.print("1 Scan QR");
     cv.setTextColor(rgb(150, 160, 190)); cv.setCursor(rx, 36); cv.print("to join");
     cv.setTextColor(rgb(255, 214, 110)); cv.setCursor(rx, 46); cv.print("ESP32-Hub");

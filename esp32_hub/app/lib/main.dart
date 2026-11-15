@@ -978,6 +978,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               _choose('Time zone', {'India (UTC+5:30)': 19800, 'UTC': 0, 'Dubai (UTC+4)': 14400, 'Europe (UTC+1)': 3600, 'Japan (UTC+9)': 32400, 'US East (UTC-5)': -18000, 'US West (UTC-8)': -28800}, 'tz', 'sec');
             case 'settings':
               Navigator.of(context).push(MaterialPageRoute(builder: (_) => SettingsPage(api: _api, data: _data, onToken: _onToken)));
+            case 'pairing':
+              _send({'cmd': 'pairing'}).then((ok) { if (ok) _toast('Pairing mode on for 10 minutes. On a phone, join the Wi-Fi "ESP32-Hub" (password hub12345) or scan the QR on the board.'); });
             case 'wifi':
               _wifiSetup();
             case 'forget':
@@ -992,6 +994,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           PopupMenuItem(value: 'settings', child: Text('Settings')),
           PopupMenuItem(value: 'auto', child: Text('Auto-rotate')),
           PopupMenuItem(value: 'tz', child: Text('Time zone')),
+          PopupMenuItem(value: 'pairing', child: Text('Pairing mode (hotspot)')),
           PopupMenuItem(value: 'wifi', child: Text('Change Wi-Fi')),
           PopupMenuItem(value: 'forget', child: Text('Forget Wi-Fi')),
           PopupMenuItem(value: 'reboot', child: Text('Restart board')),
