@@ -9,7 +9,7 @@ import '../core/catalog.dart';
 import '../core/connection.dart';
 import '../core/errors.dart';
 import '../core/models.dart';
-import '../features/eyes.dart';
+import '../features/character.dart';
 import '../features/music.dart';
 import '../features/weather.dart';
 import '../phone.dart';
@@ -62,7 +62,6 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingObserver {
   final _msg = TextEditingController();
-  String _mood = 'auto';
   String? _optimistic; // the scene the user just picked, until the Hub confirms it
   bool _notif = false, _music = false, _loc = false;
   Map<String, dynamic> _status = {};
@@ -195,7 +194,7 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
             _Header(onDevices: () => Navigator.of(context).push(hubRoute(const DevicesScreen())), onSettings: () => Navigator.of(context).push(hubRoute(const SettingsScreen()))),
             const SizedBox(height: 12),
             _ConnBanner(hub: hub),
-            _Preview(hub: hub, current: current, mood: _mood, name: _sceneName(current), onNext: () async {
+            _Preview(hub: hub, current: current, mood: 'normal', name: _sceneName(current), onNext: () async {
               if (await hub.trySend({'cmd': 'next'}, dedupeKey: 'next', onError: (m) => toast(context, m))) {
                 await Future.delayed(const Duration(milliseconds: 350));
                 await hub.refreshData();
@@ -225,17 +224,11 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                 icon: const Icon(Icons.arrow_upward_rounded),
               ),
             ]),
-            // ---- mood
-            SectionTitle('Mood', trailing: TextButton(onPressed: () => Navigator.of(context).push(hubRoute(const RobotEyesScreen())), child: const Text('All moods'))),
-            SizedBox(
-              height: 106,
-              child: ListView(scrollDirection: Axis.horizontal, children: [
-                for (final m in const ['auto', 'happy', 'love', 'excited', 'sleepy', 'angry'])
-                  Padding(padding: const EdgeInsets.only(right: 10), child: SizedBox(width: 92, child: MoodTile(mood: m, selected: _mood == m, onTap: () => _setMood(m)))),
-              ]),
-            ),
+            // ---- character
+            const SectionTitle('Character'),
+            CharacterCard(onOpen: () => Navigator.of(context).push(hubRoute(const CharacterScreen()))),
             // ---- scenes
-            SectionTitle('Scenes', trailing: TextButton(onPressed: () => Navigator.of(context).push(hubRoute(SceneLibraryScreen(mood: _mood == 'auto' ? 'normal' : _mood))), child: const Text('See all'))),
+            SectionTitle('Scenes', trailing: TextButton(onPressed: () => Navigator.of(context).push(hubRoute(SceneLibraryScreen(mood: 'normal'))), child: const Text('See all'))),
             if (scenes.isEmpty)
               const Panel(child: Text('Scenes appear when the Hub is connected.', style: Ty.secondary))
             else
@@ -251,8 +244,8 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
                           scene: s as Map,
                           active: current == s['id'],
                           favorite: favs.contains(s['id']),
-                          mood: _mood == 'auto' ? 'normal' : _mood,
-                          onTap: () => startScene(context, hub, s, mood: _mood == 'auto' ? 'normal' : _mood, optimistic: (id) => setState(() => _optimistic = id)),
+                          mood: 'normal',
+                          onTap: () => startScene(context, hub, s, mood: 'normal', optimistic: (id) => setState(() => _optimistic = id)),
                         ),
                       ),
                     ),
@@ -275,19 +268,6 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
   }
 
   int math(int favCount) => favCount >= 6 ? 0 : 6 - favCount;
-
-  Future<void> _setMood(String m) async {
-    final before = _mood;
-    setState(() => _mood = m); // shows at once
-    final ok = await _hub.trySend({'cmd': 'mood', 'mood': m == 'auto' ? 'normal' : m}, dedupeKey: 'mood', onError: (msg) => toast(context, msg));
-    if (!mounted) return;
-    if (ok) {
-      _hub.data['scene'] = 'eyes';
-      setState(() {});
-    } else {
-      setState(() => _mood = before); // roll back
-    }
-  }
 }
 
 class _Header extends StatelessWidget {

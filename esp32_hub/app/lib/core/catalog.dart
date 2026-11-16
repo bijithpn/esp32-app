@@ -32,6 +32,7 @@ class SceneInfo {
 
 const sceneCatalog = <String, SceneInfo>{
   'eyes': SceneInfo('eyes', SceneCategory.interactive, Icons.remove_red_eye_rounded, 'Expressive robot eyes with 12 moods'),
+  'char': SceneInfo('char', SceneCategory.interactive, Icons.emoji_nature_rounded, 'Your Muse character, alive on the display', hasPage: true),
   'buddy': SceneInfo('buddy', SceneCategory.interactive, Icons.smart_toy_rounded, 'A talking face for AI answers', hasPage: true),
   'pet': SceneInfo('pet', SceneCategory.interactive, Icons.pets_rounded, 'A pixel cat to feed, play with and pat', hasPage: true),
   'plasma': SceneInfo('plasma', SceneCategory.ambient, Icons.gradient_rounded, 'Slow colour clouds'),
