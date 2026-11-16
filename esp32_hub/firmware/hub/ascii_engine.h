@@ -12,7 +12,7 @@
 
 namespace asc {
 
-static const int ASW = 160, ASH = 128, ACW = 6, ACH = 8, ACOLS = 27, AROWS = 16, ANC = ACOLS * AROWS;
+static const int ASW = 160, ASH = 128, ACW = 4, ACH = 6, ACOLS = 40, AROWS = 22, ANC = ACOLS * AROWS;
 static const int MAXC = 12, MAXFOOD = 24;
 static const int NANIMALS = 7;
 static const float PI_ = 3.14159265f, TAU = 6.2831853f;
@@ -21,7 +21,8 @@ static const float PI_ = 3.14159265f, TAU = 6.2831853f;
 struct Tune {
   float density, speed, size, trail, trailFade, hue, sparkle, fog, shimmer, direction;
   bool corner;
-  float k[3];   // the animal's own three knobs, see Animal::knob*
+  float k[3];
+  float grid = 1;   // how visible the background grid lines are   // the animal's own three knobs, see Animal::knob*
 };
 
 struct Animal {
@@ -40,7 +41,7 @@ enum { A_BUTTERFLY, A_KOI, A_JELLY, A_DRAGON, A_FROG, A_CRANE, A_CRAB };
 
 static const Animal ANIMALS[NANIMALS] = {
   {"butterflies", "Butterfly", {50, 135, 255},
-   {1.0f, 1.0f, 1.0f, 1.5f, 0.4f, 0, 0.12f, 0.45f, 0.3f, 49, true, {0.6f, 1.5f, 1.0f}},
+   {1.0f, 1.0f, 1.0f, 1.5f, 0.4f, 0, 0.12f, 0.15f, 0.3f, 49, true, {0.6f, 1.5f, 1.0f}},
    {"flutter", "glide", "flapRate"}, {"Flutter", "Glide", "Flap rate"}, {0, 0, 0.2f}, {3, 4, 3}, 4, 1.0f, 28, {96, 156, 255}},
   {"koi", "Koi", {244, 196, 44},
    {1.0f, 1.0f, 1.0f, 1.0f, 0.5f, 0, 0.12f, 0.35f, 0.3f, 49, true, {1.0f, 1.0f, 90}},
@@ -139,6 +140,36 @@ static uint16_t tint(const uint8_t* c, float mul, float add, float f) {
   r = r * mul + add; g = g * mul + add; b = b * mul + add;
   r += (BGR - r) * f; g += (BGG - g) * f; b += (BGB - b) * f;
   return pack(r, g, b);
+}
+
+// The 3 x 5 pixel font the cells use (every glyph the renderer can pick). Row by row, 3 bits a row, top row in the high bits.
+static uint16_t glyphBits(char c) {
+  static const uint8_t R[][5] = {
+    {0, 0, 0, 0, 2},   // .
+    {0, 0, 0, 2, 4},   // ,
+    {0, 2, 0, 2, 0},   // :
+    {0, 2, 0, 2, 4},   // ;
+    {0, 2, 5, 5, 2},   // o
+    {0, 5, 2, 5, 0},   // x
+    {5, 1, 2, 4, 5},   // %
+    {5, 7, 5, 7, 5},   // #
+    {7, 5, 7, 4, 7},   // @
+    {0, 0, 7, 0, 0},   // -
+    {4, 4, 2, 1, 1},   // backslash
+    {2, 2, 2, 2, 2},   // |
+    {1, 1, 2, 4, 4},   // /
+    {2, 2, 0, 0, 0},   // '
+    {5, 2, 7, 2, 5},   // *
+    {0, 2, 7, 2, 0},   // +
+    {0, 3, 6, 0, 0},   // ~
+    {7, 5, 5, 5, 7},   // O
+    {4, 2, 1, 2, 4},   // >
+    {2, 5, 2, 5, 3},   // &
+    {4, 2, 0, 0, 0},   // `
+  };
+  static const char K[] = ".,:;ox%#@-\\|/'*+~O>&`";
+  for (int i = 0; K[i]; i++) if (K[i] == c) { const uint8_t* r = R[i]; return (uint16_t)(r[0] << 12 | r[1] << 9 | r[2] << 6 | r[3] << 3 | r[4]); }
+  return 0;
 }
 
 // ----------------------------------------------------------------------------- the pen: draws character cells
@@ -252,7 +283,7 @@ static void stamp(float x, float y, int radius, float amount) {
   int ox = (int)floorf(x / ACW), oy = (int)floorf(y / ACH);
   for (int j = oy - radius; j <= oy + radius; j++) for (int i = ox - radius; i <= ox + radius; i++) {
     if (i < 0 || j < 0 || i >= ACOLS || j >= AROWS) continue;
-    float d = sqrtf((float)((i - ox) * (i - ox)) + (j - oy) * 1.4f * (j - oy) * 1.4f);
+    float d = sqrtf((float)((i - ox) * (i - ox)) + (j - oy) * 1.5f * (j - oy) * 1.5f);
     if (d > radius + 0.5f) continue;
     int ci = j * ACOLS + i; energy[ci] = fminf(1.6f, energy[ci] + amount * (1 - d / (radius + 1)));
   }
@@ -261,7 +292,7 @@ static void stamp(float x, float y, int radius, float amount) {
 // ----------------------------------------------------------------------------- world helpers
 static float course() { return T.corner ? atan2f(-(float)ASH, (float)ASW) : -T.direction * PI_ / 180.0f; }
 static float groupHeading() { return course() + 0.04f * (sinf(now * 0.13f) + 0.5f * sinf(now * 0.31f + 1.7f)); }
-static float baseSize() { return 58.0f * ANIMALS[animal].scale; }
+static float baseSize() { return 46.0f * ANIMALS[animal].scale; }
 static float depthOf(float roll) { return 0.6f + 0.4f * powf(roll, 1.6f); }
 static float cruise(const Cr& c) { return ANIMALS[animal].speed * (0.55f + 0.45f * c.depth) * T.speed; }
 static void toW(const Cr& c, float u, float v, float& x, float& y) {
@@ -355,7 +386,7 @@ static void startle(float x, float y) {
     }
     return;
   }
-  stamp(x, y, 3, 1.4f);
+  stamp(x, y, 4, 1.4f);
   for (int i = 0; i < ncr; i++) {
     Cr& c = cr[i]; float dx = c.x - x, dy = c.y - y, d = sqrtf(dx * dx + dy * dy); if (d < 0.001f) { dx = 1; d = 1; }
     if (d > 70) continue;
@@ -482,7 +513,7 @@ static void updateCr(Cr& c, float dt) {
         c.leaping = false; c.x = c.tx; c.y = c.ty;
         c.until = now + rf(0.5f, 2.2f) / (T.k[0] * g);
         c.aim = groupHeading() + (c.bias + rf(-0.7f, 0.7f)) * 0.06f;
-        stamp(c.x, c.y, 2, 0.7f * c.depth * T.trail);
+        stamp(c.x, c.y, 3, 0.7f * c.depth * T.trail);
         if (passed(c, c.span)) reenter(c);
         return;
       }

@@ -2,7 +2,7 @@
 // reverse engineered from the "ascii animals" web page (see ascii_engine.h for the simulation and renderer).
 //   {"cmd":"ascii","animal":"koi"}                         choose the animal (its own default tuning)
 //   {"cmd":"ascii","density":1.5,"speed":0.8,"size":1,"trail":1,"trailFade":0.5,"hue":40,"sparkle":0.1,"fog":0.4,
-//    "shimmer":0.3,"corner":true,"direction":49,"flutter":1}   tuning (every field optional; the last key is the animal's own knob)
+//    "shimmer":0.3,"grid":1,"corner":true,"direction":49,"flutter":1}   tuning (every field optional; the last key is the animal's own knob)
 //   {"cmd":"ascii","tap":[0.5,0.4]}                        a touch from the phone at (x, y) as a 0..1 fraction of the screen:
 //                                                          koi are fed, everything else is startled
 //   {"cmd":"ascii","reset":true}                           back to the animal's defaults
@@ -20,7 +20,7 @@ struct AscSaved { uint8_t ver, animal, pad[2]; asc::Tune t; };
 static void ascSave() {
 #ifndef ASC_HOST
   AscSaved s; memset(&s, 0, sizeof s);
-  s.ver = 1; s.animal = (uint8_t)asc::animal; s.t = asc::T;
+  s.ver = 2; s.animal = (uint8_t)asc::animal; s.t = asc::T;
   prefs.putBytes("asc", &s, sizeof s);
 #endif
 }
@@ -30,7 +30,7 @@ static void ascLoad() {
   asc::setAnimal(0);
 #ifndef ASC_HOST
   AscSaved s;
-  if (prefs.getBytes("asc", &s, sizeof s) == sizeof s && s.ver == 1 && s.animal < asc::NANIMALS) {
+  if (prefs.getBytes("asc", &s, sizeof s) == sizeof s && s.ver == 2 && s.animal < asc::NANIMALS) {
     asc::setAnimal(s.animal);
     asc::Tune& t = asc::T;
     t = s.t;
@@ -38,23 +38,35 @@ static void ascLoad() {
     t.density = asc::clampf(t.density, 0.1f, 4); t.speed = asc::clampf(t.speed, 0.1f, 3); t.size = asc::clampf(t.size, 0.3f, 2.5f);
     t.trail = asc::clampf(t.trail, 0, 4); t.trailFade = asc::clampf(t.trailFade, 0.05f, 6); t.hue = asc::clampf(t.hue, -180, 180);
     t.sparkle = asc::clampf(t.sparkle, 0, 0.5f); t.fog = asc::clampf(t.fog, 0, 1); t.shimmer = asc::clampf(t.shimmer, 0, 1);
-    t.direction = asc::clampf(t.direction, 0, 360);
+    t.direction = asc::clampf(t.direction, 0, 360); t.grid = asc::clampf(t.grid, 0, 4);
     for (int k = 0; k < 3; k++) t.k[k] = asc::clampf(t.k[k], asc::ANIMALS[s.animal].kmin[k], asc::ANIMALS[s.animal].kmax[k]);
     asc::populate(true); asc::restyle();
   }
 #endif
 }
 
+// Draws one glyph of the 3 x 5 font into the cell at (x, y).
+static void ascGlyph(int x, int y, char ch, uint16_t col) {
+  uint16_t b = asc::glyphBits(ch);
+  for (int r = 0; r < 5; r++) for (int c = 0; c < 3; c++) if (b & (1 << ((4 - r) * 3 + (2 - c)))) cv.drawPixel(x + c, y + r, col);
+}
+
+// The grid first (faint lines on the cell edges, like the web page), then the trail, then the animals.
 static void ascDraw() {
   using namespace asc;
   cv.fillScreen(BG);
   if (!ready) { cv.setTextSize(1); cv.setTextColor(0xFFFF); cv.setCursor(30, 60); cv.print("no memory"); return; }
+  if (T.grid > 0.01f) {
+    uint16_t gc = pack(BGR + 14 * T.grid, BGG + 17 * T.grid, BGB + 26 * T.grid);
+    for (int x = 0; x < ASW; x += ACW) cv.drawFastVLine(x, 0, ASH, gc);
+    for (int y = 0; y < ASH; y += ACH) cv.drawFastHLine(0, y, ASW, gc);
+  }
   for (int i = 0; i < ANC; i++) {
     int x = (i % ACOLS) * ACW, y = (i / ACOLS) * ACH;
-    if (cTrail[i] && !cFlag[i]) { cv.fillRect(x + 2, y + 3, 2, 2, cTrail[i]); if (energy[i] > 0.6f) cv.fillRect(x + 1, y + 2, 4, 4, cTrail[i]); }
+    if (cTrail[i] && !cFlag[i]) { cv.fillRect(x + 1, y + 2, 2, 2, cTrail[i]); if (energy[i] > 0.6f) cv.fillRect(x, y + 1, 4, 4, cTrail[i]); }
     if (!cFlag[i]) continue;
-    if (cFlag[i] == 2) cv.fillRect(x, y, ACW - 1, ACH - 1, cFill[i]);
-    cv.drawChar(x, y, cGlyph[i], cCol[i], cCol[i], 1);
+    if (cFlag[i] == 2) cv.fillRect(x + 1, y + 1, ACW - 1, ACH - 1, cFill[i]);
+    ascGlyph(x + 1, y + 1, cGlyph[i], cCol[i]);
   }
 }
 
@@ -91,7 +103,7 @@ bool asciiCmd(JsonDocument& d, JsonDocument& r) {
   const F fields[] = {
     {"density", &T.density, 0.1f, 4}, {"speed", &T.speed, 0.1f, 3}, {"size", &T.size, 0.3f, 2.5f}, {"trail", &T.trail, 0, 4},
     {"trailFade", &T.trailFade, 0.05f, 6}, {"hue", &T.hue, -180, 180}, {"sparkle", &T.sparkle, 0, 0.5f}, {"fog", &T.fog, 0, 1},
-    {"shimmer", &T.shimmer, 0, 1}, {"direction", &T.direction, 0, 360},
+    {"shimmer", &T.shimmer, 0, 1}, {"direction", &T.direction, 0, 360}, {"grid", &T.grid, 0, 4},
     {A.knobKey[0], &T.k[0], A.kmin[0], A.kmax[0]}, {A.knobKey[1], &T.k[1], A.kmin[1], A.kmax[1]}, {A.knobKey[2], &T.k[2], A.kmin[2], A.kmax[2]},
   };
   for (const F& f : fields) {

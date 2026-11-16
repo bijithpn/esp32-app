@@ -25,7 +25,7 @@
 #include "esp_bt.h"
 #include "qrcode_lib.h"   // vendored copy of the MIT-licensed "QRCode" library (ESP-IDF ships a different qrcode.h)
 
-#define FW_VERSION "0.9.0"
+#define FW_VERSION "0.9.1"
 #define TFT_CS 15
 #define TFT_DC 2
 #define TFT_RST 4

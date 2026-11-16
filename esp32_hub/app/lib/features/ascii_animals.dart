@@ -2,7 +2,6 @@
 // as a slider, and "Show on the Hub". Reverse engineered from the "ascii animals" web page (pocketstudio.design).
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -227,53 +226,54 @@ class _AsciiAnimalsViewState extends State<AsciiAnimalsView> with SingleTickerPr
       );
 }
 
-/// Draws the cell arrays: each solid cell is a tile with a glyph, thin cells are just a glyph, trail cells a small square.
+/// Draws the grid first, then the cell arrays: each solid cell is a tile with a 3 x 5 pixel glyph (the Hub's own font), thin cells are
+/// just a glyph, trail cells a small square. Everything is drawn in the display's 160 x 128 pixels and scaled up.
 class AsciiAnimalsPainter extends CustomPainter {
   AsciiAnimalsPainter(this.world, Listenable repaint) : super(repaint: repaint);
   final AsciiWorld world;
 
-  static final Map<int, ui.Paragraph> _cache = {};
-  static double _cacheFont = 0;
-
-  ui.Paragraph _glyph(int ch, int c565, double font, double cellW) {
-    if (font != _cacheFont || _cache.length > 1800) {
-      _cache.clear();
-      _cacheFont = font;
-    }
-    final key = (ch << 16) | c565;
-    return _cache.putIfAbsent(key, () {
-      final b = ui.ParagraphBuilder(ui.ParagraphStyle(textAlign: TextAlign.center, fontFamily: 'monospace', fontSize: font, fontWeight: FontWeight.w700, height: 1))
-        ..pushStyle(ui.TextStyle(color: Color(asciiColor565(c565)), fontFamily: 'monospace', fontSize: font, fontWeight: FontWeight.w700, fontFeatures: const []))
-        ..addText(String.fromCharCode(ch));
-      return b.build()..layout(ui.ParagraphConstraints(width: cellW));
-    });
-  }
-
   @override
   void paint(Canvas canvas, Size size) {
     final sx = size.width / asciiW, sy = size.height / asciiH;
-    final cw = asciiCellW * sx, ch = asciiCellH * sy;
-    canvas.drawRect(Offset.zero & size, Paint()..color = Color(asciiColor565(world.bg)));
     final p = Paint()..isAntiAlias = false;
-    final font = ch * 0.92;
+    p.color = Color(asciiColor565(world.bg));
+    canvas.drawRect(Offset.zero & size, p);
+    final g = world.tune.grid;
+    if (g > 0.01) {
+      p.color = Color.fromARGB(255, (6 + 14 * g).clamp(0, 255).toInt(), (8 + 17 * g).clamp(0, 255).toInt(), (16 + 26 * g).clamp(0, 255).toInt());
+      for (var x = 0; x < asciiW; x += asciiCellW) {
+        canvas.drawRect(Rect.fromLTWH(x * sx, 0, sx.clamp(1.0, 99.0), size.height), p);
+      }
+      for (var y = 0; y < asciiH; y += asciiCellH) {
+        canvas.drawRect(Rect.fromLTWH(0, y * sy, size.width, sy.clamp(1.0, 99.0)), p);
+      }
+    }
     for (var i = 0; i < asciiCells; i++) {
-      final x = (i % asciiCols) * cw, y = (i ~/ asciiCols) * ch, f = world.flag[i];
+      final cx = (i % asciiCols) * asciiCellW, cy = (i ~/ asciiCols) * asciiCellH, f = world.flag[i];
       if (f == 0) {
         final t = world.trailCol[i];
         if (t != 0) {
           p.color = Color(asciiColor565(t));
-          final big = world.energy[i] > 0.6;
-          final s = (big ? 4 : 2) * sx;
-          canvas.drawRect(Rect.fromLTWH(x + cw * 0.5 - s / 2, y + ch * 0.55 - s / 2, s, s), p);
+          if (world.energy[i] > 0.6) {
+            canvas.drawRect(Rect.fromLTWH(cx * sx, (cy + 1) * sy, 4 * sx, 4 * sy), p);
+          } else {
+            canvas.drawRect(Rect.fromLTWH((cx + 1) * sx, (cy + 2) * sy, 2 * sx, 2 * sy), p);
+          }
         }
         continue;
       }
       if (f == 2) {
         p.color = Color(asciiColor565(world.fill[i]));
-        canvas.drawRect(Rect.fromLTWH(x, y, cw - sx, ch - sy), p);
+        canvas.drawRect(Rect.fromLTWH((cx + 1) * sx, (cy + 1) * sy, (asciiCellW - 1) * sx, (asciiCellH - 1) * sy), p);
       }
-      final para = _glyph(world.glyph[i], world.col[i], font, cw);
-      canvas.drawParagraph(para, Offset(x, y + (ch - para.height) / 2));
+      final bits = asciiGlyphBits(world.glyph[i]);
+      if (bits == 0) continue;
+      p.color = Color(asciiColor565(world.col[i]));
+      for (var r = 0; r < 5; r++) {
+        for (var c = 0; c < 3; c++) {
+          if (bits & (1 << ((4 - r) * 3 + (2 - c))) != 0) canvas.drawRect(Rect.fromLTWH((cx + 1 + c) * sx, (cy + 1 + r) * sy, sx, sy), p);
+        }
+      }
     }
   }
 
@@ -507,7 +507,7 @@ class _AsciiScreenState extends State<AsciiScreen> {
                       ),
                       if (!c.tune.corner) _slider(asciiCommonKnobs.firstWhere((k) => k.key == 'direction')),
                     ]),
-                    _group('Look', [for (final k in asciiCommonKnobs.where((k) => const ['trail', 'trailFade', 'hue', 'sparkle', 'fog', 'shimmer'].contains(k.key))) _slider(k)]),
+                    _group('Look', [for (final k in asciiCommonKnobs.where((k) => const ['trail', 'trailFade', 'hue', 'sparkle', 'fog', 'shimmer', 'grid'].contains(k.key))) _slider(k)]),
                   ],
                 ),
               ),
