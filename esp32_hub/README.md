@@ -365,3 +365,13 @@ BLE advertising seen from a computer; memory stays flat during the tests; no reb
   `ESP32-Hub` hotspot (per-board password) on for 10 minutes while the board stays on your Wi-Fi. The screen shows the Wi-Fi QR.
 - **First boot Wi-Fi**: copy `firmware/hub/secrets.h.example` to `secrets.h` (git-ignored) to give a new board your Wi-Fi without app setup.
 
+
+## ASCII animals (app 2.3.0 / firmware 0.9.0)
+A scene (`ascii`) with seven animals (butterflies, koi, jellyfish, dragonflies, frogs, cranes, crabs) drawn as coloured character cells. It was
+rebuilt after reverse engineering the shipped bundle of the "ascii animals" web page: a flock with depth, steering and separation, a touch that
+startles them (feeds the koi), a glowing trail, a hue shift and the other knobs. The shapes are redrawn for the 160 x 128 screen (6 x 8 px cells); no code
+or artwork was copied from the page. The app has a screen for it (live preview that runs the same simulation, one slider per knob, tap to touch, *Show on the Hub*).
+- Command: `{"cmd":"ascii","animal":"koi","hue":40,"density":1.5}` (every field optional), `{"cmd":"ascii","tap":[0.5,0.4]}` (x, y as 0..1), `{"cmd":"ascii","reset":true}`. The choice is kept in flash.
+- Firmware: `firmware/hub/ascii_engine.h` (simulation and renderer, no Arduino dependency) and `ascii.h` (scene and command). App: `lib/features/ascii_engine.dart`, `ascii_animals.dart`.
+- Test the engine on a PC: `cd tools && g++ -std=c++17 -O1 -I../firmware/hub ascii_host_test.cpp -o /tmp/ascii_host_test && /tmp/ascii_host_test [animal 0-6] [seconds]` (prints a frame when an animal is given).
+- Not verified on hardware: frame time and look on the real ST7735 (the engine and the firmware build were checked on a PC; the build uses 82 % flash, +10 KB RAM).

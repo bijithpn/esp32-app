@@ -130,7 +130,7 @@ void buildCaps(JsonDocument& d) {
   dp["driver"] = "ST7735S"; dp["width"] = W; dp["height"] = H; dp["rotation"] = 1;
   dp["backlight"] = "fixed";            // LED pin is wired to 3V3: no hardware dimming
   JsonObject f = d["features"].to<JsonObject>();
-  f["weather"] = true; f["music"] = true; f["notifications"] = true; f["animations"] = true; f["character"] = true;
+  f["weather"] = true; f["music"] = true; f["notifications"] = true; f["animations"] = true; f["character"] = true; f["ascii"] = true;
   f["mqtt"] = true; f["ota"] = true; f["schedule"] = true; f["softDim"] = true; f["pairingMode"] = true;
   f["ble"] = bleAvailable; f["otaRollback"] = false; f["otaSigned"] = false; f["events"] = "poll";
   JsonObject l = d["limits"].to<JsonObject>();

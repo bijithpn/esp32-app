@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import 'core/catalog.dart';
+import 'features/ascii_animals.dart';
 import 'features/character.dart';
 import 'theme.dart';
 
@@ -21,6 +22,8 @@ class ScenePreview extends StatelessWidget {
         return FaceScreen(mood: mood == 'auto' ? 'normal' : mood);
       case 'char':
         return const CharacterPreview();
+      case 'ascii':
+        return const AsciiPreview();
       case 'buddy':
         return const FaceScreen(mood: 'happy', talking: true);
       case 'nowplaying':
