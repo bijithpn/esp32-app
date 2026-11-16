@@ -1,17 +1,12 @@
 import 'dart:async';
-import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:record/record.dart';
 
 import '../core/bridge.dart';
-import '../core/command_queue.dart';
 import '../core/connection.dart';
-import '../fft.dart';
 import '../theme.dart';
 
-/// Music: what is playing on the phone, an equaliser preview, a microphone visualiser and manual entry.
+/// Music: what is playing on the phone and manual entry.
 /// What the phone exposes depends on the music app, so every field can be empty and the screen copes with that.
 class MusicPage extends StatefulWidget {
   const MusicPage({super.key});
@@ -20,19 +15,11 @@ class MusicPage extends StatefulWidget {
 }
 
 class _MusicPageState extends State<MusicPage> with WidgetsBindingObserver {
-  Timer? _poll, _demoTimer;
+  Timer? _poll;
   NowPlaying? _np;
-  bool _access = true, _config = false, _demo = false, _mic = false, _inFlight = false, _manualPlaying = true;
-  double _phase = 0;
+  bool _access = true, _config = false, _manualPlaying = true;
   String _lastDelivery = '';
   final _title = TextEditingController(), _artist = TextEditingController(), _dur = TextEditingController(text: '240');
-
-  // microphone visualizer
-  final _rec = AudioRecorder();
-  final _spec = Spectrum();
-  StreamSubscription<Uint8List>? _micSub;
-  final List<double> _buf = [];
-  int _lastSend = 0;
 
   @override
   void initState() {
@@ -46,9 +33,6 @@ class _MusicPageState extends State<MusicPage> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _poll?.cancel();
-    _demoTimer?.cancel();
-    _micSub?.cancel();
-    _rec.dispose();
     _title.dispose();
     _artist.dispose();
     _dur.dispose();
@@ -58,7 +42,6 @@ class _MusicPageState extends State<MusicPage> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) _refresh();
-    if (state != AppLifecycleState.resumed && _mic) _toggleMic(false); // never keep the microphone open in the background
   }
 
   Future<void> _refresh() async {
@@ -91,68 +74,6 @@ class _MusicPageState extends State<MusicPage> with WidgetsBindingObserver {
         'rate' => 'the Hub asked to slow down',
         _ => 'the Hub didn\'t answer',
       };
-
-  // ---------------------------------------------------------------- demo + microphone
-  void _toggleDemo(bool on) {
-    final hub = HubScope.read(context);
-    _demoTimer?.cancel();
-    setState(() => _demo = on);
-    if (!on) return;
-    if (_mic) _toggleMic(false);
-    _demoTimer = Timer.periodic(const Duration(milliseconds: 90), (_) {
-      if (_inFlight || !hub.canSend) return;
-      _phase += 0.25;
-      final v = [for (var i = 0; i < 16; i++) (140 + 110 * math.sin(_phase * (1 + i * 0.07) + i * 0.8) * math.cos(_phase * 0.6 + i * 0.3)).clamp(8, 255).round()];
-      _stream(hub, v);
-    });
-  }
-
-  void _stream(ConnectionManager hub, List<num> bands) {
-    _inFlight = true;
-    hub.send({'cmd': 'bands', 'v': bands}, dedupeKey: 'bands', retries: 0, timeout: const Duration(seconds: 2), priority: CmdPriority.low).catchError((_) => <String, dynamic>{}).whenComplete(() => _inFlight = false);
-  }
-
-  Future<void> _toggleMic(bool on) async {
-    if (!on) {
-      await _micSub?.cancel();
-      _micSub = null;
-      try {
-        await _rec.stop();
-      } catch (_) {}
-      if (mounted) setState(() => _mic = false);
-      return;
-    }
-    if (!await _rec.hasPermission()) {
-      if (mounted) toast(context, 'Microphone permission is needed. You can allow it in the app settings.');
-      return;
-    }
-    if (_demo) _toggleDemo(false);
-    try {
-      final stream = await _rec.startStream(const RecordConfig(encoder: AudioEncoder.pcm16bits, sampleRate: 22050, numChannels: 1));
-      _buf.clear();
-      _micSub = stream.listen(_onAudio);
-      if (mounted) setState(() => _mic = true);
-    } catch (e) {
-      if (mounted) toast(context, 'Couldn\'t start the microphone.');
-    }
-  }
-
-  void _onAudio(Uint8List chunk) {
-    final bd = ByteData.sublistView(chunk);
-    for (var i = 0; i + 1 < chunk.length; i += 2) {
-      _buf.add(bd.getInt16(i, Endian.little).toDouble());
-    }
-    if (_buf.length < 512) return;
-    final now = DateTime.now().millisecondsSinceEpoch;
-    if (now - _lastSend < 70 || _inFlight) {
-      if (_buf.length > 2048) _buf.removeRange(0, _buf.length - 512); // drop old audio, keep only the latest
-      return;
-    }
-    _lastSend = now;
-    final bands = _spec.process(_buf);
-    _buf.removeRange(0, _buf.length - 512);
-    _stream(HubScope.read(context), bands);
-  }
 
   Future<void> _showManual() async {
     final ok = await HubScope.read(context).trySend(
@@ -188,14 +109,9 @@ class _MusicPageState extends State<MusicPage> with WidgetsBindingObserver {
         else
           _NowCard(np: n, syncText: _syncText, onPush: n == null || !hub.canSend ? null : _pushCurrent),
         const SectionTitle('On the Hub'),
-        DisplayFrame(child: n == null ? const BarsScreen() : MusicScreen(title: n.title, artist: n.artist, playing: n.playing, hue: (n.title.hashCode % 360).abs().toDouble())),
+        DisplayFrame(child: n == null ? const ColoredBox(color: Colors.black, child: Center(child: Text('Nothing playing', style: Ty.meta))) : MusicScreen(title: n.title, artist: n.artist, playing: n.playing, hue: (n.title.hashCode % 360).abs().toDouble())),
         const SizedBox(height: 8),
         const Center(child: Text('Illustration of the display', style: Ty.meta)),
-        const SectionTitle('Visualiser'),
-        Group(children: [
-          _Sw(title: 'Microphone', sub: 'Listens through the phone and shows the sound spectrum. Stops when you leave the app.', value: _mic, onChanged: hub.canSend ? _toggleMic : null),
-          _Sw(title: 'Demo animation', sub: 'A made-up spectrum, no microphone needed', value: _demo, onChanged: hub.canSend ? _toggleDemo : null),
-        ]),
         const SizedBox(height: 8),
         Theme(
           data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
@@ -266,19 +182,4 @@ class _NoArt extends StatelessWidget {
   const _NoArt();
   @override
   Widget build(BuildContext context) => Container(color: HubColors.surface2, child: const Icon(Icons.music_note_rounded, color: HubColors.muted, size: 32));
-}
-
-class _Sw extends StatelessWidget {
-  const _Sw({required this.title, required this.sub, required this.value, required this.onChanged});
-  final String title, sub;
-  final bool value;
-  final ValueChanged<bool>? onChanged;
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
-        child: Row(children: [
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: Ty.bodyStrong), const SizedBox(height: 2), Text(sub, style: Ty.secondary)])),
-          Switch(value: value, onChanged: onChanged),
-        ]),
-      );
 }

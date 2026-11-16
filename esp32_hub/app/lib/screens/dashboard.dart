@@ -402,7 +402,7 @@ class _QuickChip extends StatelessWidget {
   final bool enabled;
   final VoidCallback onTap;
   static const _icons = <String, IconData>{
-    'schedule': Icons.schedule_rounded, 'timer': Icons.timer_rounded, 'cloud': Icons.wb_cloudy_rounded, 'mood': Icons.sentiment_satisfied_alt_rounded,
+    'schedule': Icons.schedule_rounded, 'pets': Icons.pets_rounded, 'timer': Icons.timer_rounded, 'cloud': Icons.wb_cloudy_rounded, 'mood': Icons.sentiment_satisfied_alt_rounded,
     'bedtime': Icons.bedtime_rounded, 'skip': Icons.skip_next_rounded, 'wifi': Icons.wifi_tethering_rounded, 'tune': Icons.tune_rounded,
   };
   @override

@@ -83,7 +83,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   Future<void> _edit([_Item? it, int? index]) async {
     final hub = HubScope.read(context);
     final scenes = ((hub.data['scenes'] as List?) ?? const []).where((s) => !systemScenes.contains(s['id'])).toList();
-    var item = it == null ? _Item(h: 7, m: 30, days: 127, scene: scenes.isEmpty ? 'clock' : '${scenes.first['id']}') : _Item(h: it.h, m: it.m, days: it.days, scene: it.scene, mood: it.mood);
+    var item = it == null ? _Item(h: 7, m: 30, days: 127, scene: scenes.isEmpty ? 'ascii' : '${scenes.first['id']}') : _Item(h: it.h, m: it.m, days: it.days, scene: it.scene, mood: it.mood);
     final ok = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -177,11 +177,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                         const Hint('Pick a scene for a time of day. The Hub runs it by itself, even when your phone is away.'),
                         const SectionTitle('Ideas'),
                         Wrap(spacing: 8, runSpacing: 8, children: [
-                          _Idea('Clock in the morning', () => _template(_Item(h: 7, m: 0, days: 62, scene: 'clock'))),
+                          _Idea('Animals in the morning', () => _template(_Item(h: 7, m: 0, days: 62, scene: 'ascii'))),
                           _Idea('Weather before work', () => _template(_Item(h: 8, m: 0, days: 62, scene: 'weather'))),
                           _Idea('Focus timer at 9', () => _template(_Item(h: 9, m: 0, days: 62, scene: 'pomo'))),
-                          _Idea('Ambient in the evening', () => _template(_Item(h: 19, m: 0, days: 127, scene: 'plasma'))),
-                          _Idea('Sleepy eyes at night', () => _template(_Item(h: 22, m: 30, days: 127, scene: 'eyes', mood: 'sleepy'))),
+                          _Idea('Matrix rain in the evening', () => _template(_Item(h: 19, m: 0, days: 127, scene: 'matrix'))),
                         ]),
                       ] else
                         Group(children: [

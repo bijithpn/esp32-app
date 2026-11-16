@@ -41,26 +41,26 @@ enum { A_BUTTERFLY, A_KOI, A_JELLY, A_DRAGON, A_FROG, A_CRANE, A_CRAB };
 
 static const Animal ANIMALS[NANIMALS] = {
   {"butterflies", "Butterfly", {50, 135, 255},
-   {1.0f, 1.0f, 1.0f, 1.5f, 0.4f, 0, 0.12f, 0.15f, 0.3f, 49, true, {0.6f, 1.5f, 1.0f}},
+   {1.0f, 1.0f, 1.0f, 1.5f, 0.4f, 0, 0.12f, 0.05f, 0.3f, 49, true, {0.6f, 1.5f, 1.0f}},
    {"flutter", "glide", "flapRate"}, {"Flutter", "Glide", "Flap rate"}, {0, 0, 0.2f}, {3, 4, 3}, 4, 1.0f, 28, {96, 156, 255}},
   {"koi", "Koi", {244, 196, 44},
-   {1.0f, 1.0f, 1.0f, 1.0f, 0.5f, 0, 0.12f, 0.35f, 0.3f, 49, true, {1.0f, 1.0f, 90}},
-   {"meander", "tailBeat", "foodRange"}, {"Meander", "Tail beat", "Food range"}, {0, 0.2f, 0}, {3, 3, 200}, 4, 1.15f, 16, {110, 170, 220}},
+   {1.0f, 1.0f, 1.0f, 1.0f, 0.5f, 0, 0.12f, 0.1f, 0.3f, 49, true, {1.0f, 1.0f, 90}},
+   {"meander", "tailBeat", "foodRange"}, {"Meander", "Tail beat", "Food range"}, {0, 0.2f, 0}, {3, 3, 200}, 3, 1.15f, 16, {110, 170, 220}},
   {"jellyfish", "Jellyfish", {230, 120, 255},
-   {1.0f, 1.0f, 1.0f, 1.0f, 0.5f, 0, 0.18f, 0.3f, 0.3f, 49, true, {1.0f, 1.0f, 1.0f}},
-   {"pulseRate", "pulsePower", "tentacles"}, {"Pulse rate", "Pulse power", "Tentacles"}, {0.2f, 0.2f, 0.3f}, {3, 3, 2}, 4, 1.1f, 12, {190, 130, 255}},
+   {1.0f, 1.0f, 1.0f, 1.0f, 0.5f, 0, 0.18f, 0.1f, 0.3f, 49, true, {1.0f, 1.0f, 1.0f}},
+   {"pulseRate", "pulsePower", "tentacles"}, {"Pulse rate", "Pulse power", "Tentacles"}, {0.2f, 0.2f, 0.3f}, {3, 3, 2}, 3, 1.1f, 12, {190, 130, 255}},
   {"dragonflies", "Dragonfly", {50, 220, 120},
-   {1.0f, 1.0f, 1.0f, 0.6f, 1.2f, 0, 0.18f, 0.3f, 0.3f, 49, true, {1.3f, 0.5f, 1.5f}},
+   {1.0f, 1.0f, 1.0f, 0.6f, 1.2f, 0, 0.18f, 0.1f, 0.3f, 49, true, {1.3f, 0.5f, 1.5f}},
    {"hover", "cruising", "dart"}, {"Hover time", "Cruising", "Dart speed"}, {0, 0, 0.3f}, {3, 1, 3}, 5, 0.85f, 32, {120, 232, 150}},
   {"frogs", "Frog", {96, 232, 130},
-   {1.0f, 1.0f, 1.0f, 1.0f, 0.8f, 0, 0.12f, 0.3f, 0.2f, 49, true, {1.0f, 1.0f, 1.0f}},
+   {1.0f, 1.0f, 1.0f, 1.0f, 0.8f, 0, 0.12f, 0.1f, 0.2f, 49, true, {1.0f, 1.0f, 1.0f}},
    {"hop", "leap", "height"}, {"How often", "Leap length", "Leap height"}, {0.2f, 0.4f, 0.2f}, {3, 2.5f, 2.5f}, 4, 0.95f, 34, {150, 220, 170}},
   {"cranes", "Crane", {236, 238, 242},
-   {1.0f, 1.0f, 1.0f, 0.0f, 1.0f, 0, 0.04f, 0.26f, 0.1f, 49, true, {1.0f, 1.0f, 0.0f}},
+   {1.0f, 1.0f, 1.0f, 0.0f, 1.0f, 0, 0.04f, 0.1f, 0.1f, 49, true, {1.0f, 1.0f, 0.0f}},
    {"wingbeat", "glide", "foldFlap"}, {"Wingbeat", "Glide", "Folding flap"}, {0.2f, 0, 0}, {3, 3, 1}, 2, 1.0f, 24, {200, 210, 225}},
   {"crabs", "Crab", {204, 82, 52},
-   {1.0f, 1.0f, 1.0f, 0.6f, 1.0f, 0, 0.03f, 0.25f, 0.1f, 49, true, {1.0f, 1.0f, 0.55f}},
-   {"burst", "rest", "scare"}, {"Burst length", "Pause length", "Scare"}, {0.2f, 0, 0}, {3, 3, 1.5f}, 5, 0.8f, 28, {206, 178, 136}},
+   {1.0f, 1.0f, 1.0f, 0.6f, 1.0f, 0, 0.03f, 0.1f, 0.1f, 49, true, {1.0f, 1.0f, 0.55f}},
+   {"burst", "rest", "scare"}, {"Burst length", "Pause length", "Scare"}, {0.2f, 0, 0}, {3, 3, 1.5f}, 4, 0.8f, 28, {206, 178, 136}},
 };
 
 // ----------------------------------------------------------------------------- random numbers and small maths
@@ -189,7 +189,7 @@ static void putCell(int ci, int cx, int cy, int id, Kind kind, const uint8_t* co
   uint32_t h = hash3(cx, cy, id) ;
   float jit = hash01(cx, cy, (int)(now * 2.4f) + id);
   float lum = (0.3f * col[0] + 0.59f * col[1] + 0.11f * col[2]) / 255.0f;
-  if (cov < 0.6f) {                                  // partly covered: a light glyph, never over a solid cell
+  if (cov < 0.3f) {                                  // barely covered: a light glyph, never over a solid cell
     if (cFlag[ci] == 2 || kind == K_SPARK) return;
     cFlag[ci] = 1; cGlyph[ci] = THIN[(h >> 8) % 4]; cCol[ci] = tint(col, light, 0, fmaxf(fog, 0.0f) + 0.5f - 0.35f * cov); return;
   }
@@ -220,15 +220,15 @@ static void ell(float cx, float cy, float rx, float ry, float ang, const uint8_t
   static const float OX[5] = {0.5f, 0.2f, 0.8f, 0.2f, 0.8f}, OY[5] = {0.5f, 0.2f, 0.2f, 0.8f, 0.8f};
   for (int j = y0; j <= y1; j++) for (int i = x0; i <= x1; i++) {
     if (i < 0 || j < 0 || i >= ACOLS || j >= AROWS) continue;
-    int n = 0; bool centre = false;
+    int n = 0;
     for (int s = 0; s < 5; s++) {
       float dx = i * ACW + OX[s] * ACW - cx, dy = j * ACH + OY[s] * ACH - cy;
       float u = (dx * ca + dy * sa) / rx, v = (dy * ca - dx * sa) / ry;
-      if (u * u + v * v <= 1) { n++; if (s == 0) centre = true; }
+      if (u * u + v * v <= 1) n++;
     }
     if (!n) continue;
     float cov = n / 5.0f;
-    putCell(j * ACOLS + i, i, j, id, kind, col, light, centre && cov >= 0.6f ? 1.0f : cov, fog);
+    putCell(j * ACOLS + i, i, j, id, kind, col, light, n >= 2 ? 1.0f : cov, fog);
   }
 }
 // A capsule: the points within r pixels of the segment.
@@ -243,7 +243,7 @@ static void cap(float x0, float y0, float x1, float y1, float r, const uint8_t* 
     float t = clampf(((px - x0) * dx + (py - y0) * dy) / l2, 0, 1);
     float d = sqrtf((px - x0 - dx * t) * (px - x0 - dx * t) + (py - y0 - dy * t) * (py - y0 - dy * t));
     if (d <= r) putCell(j * ACOLS + i, i, j, id, kind, col, light, 1.0f, fog);
-    else if (d <= r + ACW * 0.45f) putCell(j * ACOLS + i, i, j, id, kind, col, light, 0.4f, fog);
+    else if (d <= r + ACW * 0.45f) putCell(j * ACOLS + i, i, j, id, kind, col, light, 0.2f, fog);
   }
 }
 static char lineGlyph(float ang) {
@@ -292,8 +292,8 @@ static void stamp(float x, float y, int radius, float amount) {
 // ----------------------------------------------------------------------------- world helpers
 static float course() { return T.corner ? atan2f(-(float)ASH, (float)ASW) : -T.direction * PI_ / 180.0f; }
 static float groupHeading() { return course() + 0.04f * (sinf(now * 0.13f) + 0.5f * sinf(now * 0.31f + 1.7f)); }
-static float baseSize() { return 46.0f * ANIMALS[animal].scale; }
-static float depthOf(float roll) { return 0.6f + 0.4f * powf(roll, 1.6f); }
+static float baseSize() { return 62.0f * ANIMALS[animal].scale; }
+static float depthOf(float roll) { return 0.8f + 0.2f * powf(roll, 1.6f); }
 static float cruise(const Cr& c) { return ANIMALS[animal].speed * (0.55f + 0.45f * c.depth) * T.speed; }
 static void toW(const Cr& c, float u, float v, float& x, float& y) {
   float ca = cosf(c.heading), sa = sinf(c.heading);
@@ -567,22 +567,21 @@ static void step(float dt) {
 }
 
 // ----------------------------------------------------------------------------- drawing each animal
-static const uint8_t C_INK[3] = {30, 30, 42};
 static void drawButterfly(Cr& c) {
-  const uint8_t dark[3] = {22, 28, 62}, wing[3] = {78, 159, 255}, hi[3] = {236, 240, 255}, edge2[3] = {30, 50, 120};
-  float s = c.span, op = fmaxf(0.1f, c.open), x, y, hd = c.heading + 0.06f * sinf(c.phase), light = 0.6f + 0.4f * c.open;
+  // Two-tone wings (blue forewings, orange hindwings) with white spots, a bright body and feelers: every part contrasts with the dark background.
+  const uint8_t fore[3] = {70, 150, 255}, hind[3] = {255, 150, 50}, bodyC[3] = {240, 240, 250}, white[3] = {255, 255, 255}, dark[3] = {20, 40, 110};
+  float s = c.span, op = fmaxf(0.12f, c.open), x, y, hd = c.heading + 0.06f * sinf(c.phase);
   Cr b = c; b.heading = hd;
   for (int sd = -1; sd <= 1; sd += 2) {
-    toW(b, 0.12f, 0.2f * sd * op, x, y);  ell(x, y, 0.3f * s, 0.27f * s * op, hd + sd * 0.35f, dark, K_EDGE, c.depth, c.id, light);
-    toW(b, 0.12f, 0.2f * sd * op, x, y);  ell(x, y, 0.22f * s, 0.2f * s * op, hd + sd * 0.35f, wing, K_BODY, c.depth, c.id, light);
-    toW(b, -0.14f, 0.15f * sd * op, x, y); ell(x, y, 0.2f * s, 0.17f * s * op, hd - sd * 0.5f, dark, K_EDGE, c.depth, c.id, light);
-    toW(b, -0.14f, 0.15f * sd * op, x, y); ell(x, y, 0.14f * s, 0.11f * s * op, hd - sd * 0.5f, edge2, K_BODY, c.depth, c.id, light);
-    toW(b, 0.2f, 0.28f * sd * op, x, y);   dotc(x, y, '.', hi, c.depth);
+    toW(b, 0.16f, 0.2f * sd * op, x, y);   ell(x, y, 0.21f * s, 0.25f * s * op, hd + sd * 0.45f, fore, K_BODY, c.depth, c.id, 1.0f);
+    toW(b, 0.2f, 0.3f * sd * op, x, y);    spot(x, y, 'o', dark, white, c.depth);
+    toW(b, -0.14f, 0.17f * sd * op, x, y); ell(x, y, 0.17f * s, 0.18f * s * op, hd - sd * 0.5f, hind, K_BODY, c.depth, c.id, 1.0f);
+    toW(b, -0.17f, 0.2f * sd * op, x, y);  dotc(x, y, '.', white, c.depth);
   }
-  float x0, y0, x1, y1; toW(b, -0.2f, 0, x0, y0); toW(b, 0.22f, 0, x1, y1);
-  cap(x0, y0, x1, y1, fmaxf(1.2f, 0.035f * s), C_INK, K_EDGE, c.depth, c.id);
-  float r = 0.012f * sinf(now * 3 + c.id);
-  for (int sd = -1; sd <= 1; sd += 2) { toW(b, 0.22f, 0.01f * sd, x0, y0); toW(b, 0.4f + r, (0.12f + r) * sd, x1, y1); line(x0, y0, x1, y1, C_INK, c.depth, s > 36 ? 'o' : 0, 1.6f); }
+  float x0, y0, x1, y1; toW(b, -0.24f, 0, x0, y0); toW(b, 0.22f, 0, x1, y1);
+  cap(x0, y0, x1, y1, fmaxf(2.0f, 0.045f * s), bodyC, K_EDGE, c.depth, c.id, 0.9f);
+  float r = 0.015f * sinf(now * 3 + c.id);
+  for (int sd = -1; sd <= 1; sd += 2) { toW(b, 0.24f, 0.015f * sd, x0, y0); toW(b, 0.42f + r, (0.13f + r) * sd, x1, y1); line(x0, y0, x1, y1, bodyC, c.depth, 'o'); }
   float h = fmaxf(0, -sinf(c.phase)) * (1 - c.glide);
   for (int sd = -1; sd <= 1; sd += 2) { toW(b, 0.1f, 0.3f * sd * c.open, x, y); shed(x, y, (0.02f + 0.1f * h) * c.depth); }
 }
@@ -644,19 +643,19 @@ static void drawJelly(Cr& c) {
 }
 
 static void drawDragon(Cr& c) {
-  static const uint8_t BODY[3] = {50, 200, 130}, HEAD[3] = {40, 160, 110}, WING[3] = {226, 236, 214}, RED[3] = {236, 120, 70};
-  float s = c.span, x0, y0, x1, y1, beat = fabsf(cosf(c.phase));
-  toW(c, 0.2f, 0, x0, y0); toW(c, -0.32f, 0, x1, y1);
-  float perp = c.m == 1 ? 0.1f : 0.3f;
-  for (int sd = -1; sd <= 1; sd += 2) for (int p = 0; p < 2; p++) {
-    float u = 0.1f - p * 0.1f, wx, wy; toW(c, u, 0.02f * sd, wx, wy);
-    float sp = (0.15f + 0.15f * beat * (p ? 0.8f : 1)) * s;
-    float cx = wx + (-sinf(c.heading) * sd) * sp * 0.5f, cy = wy + (cosf(c.heading) * sd) * sp * 0.5f;
-    ell(cx, cy, 0.09f * s, sp * 0.5f + 1, c.heading + sd * (0.12f + perp * 0.2f) * (p ? -1 : 1), WING, K_LIGHT, c.depth, c.id, 0.9f);
+  // A solid bright body, a big head and four long narrow wings across it that beat.
+  const uint8_t body[3] = {40, 225, 175}, head[3] = {255, 255, 255}, wing[3] = {175, 225, 255}, red[3] = {255, 110, 70}, eyeC[3] = {10, 30, 40};
+  float s = c.span, beat = fabsf(cosf(c.phase)), bs = 0.6f + 0.4f * beat, x0, y0, x1, y1;
+  toW(c, 0.3f, 0, x0, y0); toW(c, -0.42f, 0, x1, y1);
+  for (int p = 0; p < 2; p++) for (int sd = -1; sd <= 1; sd += 2) {
+    float u = 0.14f - 0.16f * p, wx, wy;
+    toW(c, u, sd * 0.2f * bs, wx, wy);
+    ell(wx, wy, 0.21f * s * bs, 0.065f * s, c.heading + PI_ / 2 + sd * (p ? 0.28f : -0.28f), wing, K_BODY, c.depth, c.id, 0.9f);
   }
-  cap(x0, y0, x1, y1, fmaxf(1.0f, 0.03f * s), BODY, K_EDGE, c.depth, c.id);
-  dotc(x1, y1, '~', RED, c.depth);
-  spot(x0 + cosf(c.heading) * 2, y0 + sinf(c.heading) * 2, 'O', HEAD, WING, c.depth);
+  cap(x0, y0, x1, y1, fmaxf(2.2f, 0.04f * s), body, K_BODY, c.depth, c.id, 1.1f);
+  dotc(x1, y1, '~', red, c.depth);
+  toW(c, 0.33f, 0, x0, y0); spot(x0, y0, 'O', body, head, c.depth);
+  toW(c, 0.36f, 0.05f, x1, y1); dotc(x1, y1, '.', eyeC, c.depth);
   float hx, hy; toW(c, 0.08f, 0, hx, hy); shed(hx, hy, 0.01f * c.depth);
 }
 

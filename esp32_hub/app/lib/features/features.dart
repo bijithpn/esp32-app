@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import 'anim_editor.dart';
 import 'ascii_animals.dart';
-import 'buddy.dart';
 import 'canvas_editor.dart';
 import 'character.dart';
 import 'music.dart';
@@ -14,7 +13,6 @@ import 'weather.dart';
 Widget? specialPage(String id) {
   switch (id) {
     case 'char':
-    case 'eyes':
       return const CharacterScreen();
     case 'ascii':
       return const AsciiScreen();
@@ -24,13 +22,10 @@ Widget? specialPage(String id) {
       return const PetScreen();
     case 'weather':
       return const WeatherPage();
-    case 'buddy':
-      return const BuddyScreen();
     case 'canvas':
       return const CanvasEditorScreen();
     case 'anim':
       return const AnimEditorScreen();
-    case 'bars':
     case 'nowplaying':
       return const MusicPage();
   }
