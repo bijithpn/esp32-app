@@ -370,6 +370,7 @@ void pair_frame() {
 }
 
 #include "character.h"   // the Muse character, animated
+#include "ascii.h"       // ASCII animals (butterflies, koi, jellyfish, dragonflies, frogs, cranes, crabs)
 
 // ============================ REGISTRY ============================
 const Scene SCENES[] = {
@@ -390,6 +391,7 @@ const Scene SCENES[] = {
   {"bars",   "Music Bars",     bars_begin,    bars_frame,    35, "[]", false},
   {"nowplaying", "Now Playing", np_begin,     np_frame,      50, "[]", false},
   {"char",   "Character",      char_begin,    char_frame,    10, "[]", false},
+  {"ascii",  "ASCII Animals",  ascii_begin,   ascii_frame,   40, "[]", true},
   {"canvas", "Canvas",         canvas_begin,  canvas_frame,  150, "[]", false},
   {"anim",   "Animation",      anim_begin,    anim_frame,    30, "[]", false},
   {"pair",   "Pair (QR)",      pair_begin,    pair_frame,    500, "[]", false},
@@ -410,6 +412,7 @@ bool extraCmd(const char* cmd, JsonDocument& d, JsonDocument& r) {
     return true;
   }
   if (!strcmp(cmd, "char")) return charCmd(d, r);
+  if (!strcmp(cmd, "ascii")) return asciiCmd(d, r);
   if (!strcmp(cmd, "pet")) { gotoScene("pet"); petAction(d["action"] | "show"); return true; }
   if (!strcmp(cmd, "loc")) {
     wLat = d["lat"] | 28.61f; wLon = d["lon"] | 77.21f;

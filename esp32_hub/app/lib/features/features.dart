@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'anim_editor.dart';
+import 'ascii_animals.dart';
 import 'buddy.dart';
 import 'canvas_editor.dart';
 import 'character.dart';
@@ -15,6 +16,8 @@ Widget? specialPage(String id) {
     case 'char':
     case 'eyes':
       return const CharacterScreen();
+    case 'ascii':
+      return const AsciiScreen();
     case 'pomo':
       return const PomodoroScreen();
     case 'pet':
