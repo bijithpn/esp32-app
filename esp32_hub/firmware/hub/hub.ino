@@ -610,6 +610,7 @@ void setup() {
   WiFi.onEvent([](arduino_event_id_t, arduino_event_info_t) { assocSeen = true; }, ARDUINO_EVENT_WIFI_STA_CONNECTED);
   SPI.begin(TFT_SCK, -1, TFT_MOSI, -1);   // CS is driven by the display library, not the SPI peripheral
   tft.initR(TAB);
+  tft.setSPISpeed(20000000);   // the library default (8 MHz) needs ~80 ms to push a frame: that is what made animations stutter
   tft.setRotation(1);
   tft.fillScreen(0);
   prefs.begin("hub", false);

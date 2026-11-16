@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import 'core/catalog.dart';
+import 'features/character.dart';
 import 'theme.dart';
 
 /// App-side illustration of a scene at the display's 160x128 proportions.
@@ -18,6 +19,8 @@ class ScenePreview extends StatelessWidget {
     switch (id) {
       case 'eyes':
         return FaceScreen(mood: mood == 'auto' ? 'normal' : mood);
+      case 'char':
+        return const CharacterPreview();
       case 'buddy':
         return const FaceScreen(mood: 'happy', talking: true);
       case 'nowplaying':

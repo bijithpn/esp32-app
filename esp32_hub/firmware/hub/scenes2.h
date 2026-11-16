@@ -369,6 +369,8 @@ void pair_frame() {
   cv.setCursor(box + 6, 70); cv.print(lockOn ? "LOCK" : "open");
 }
 
+#include "character.h"   // the Muse character, animated
+
 // ============================ REGISTRY ============================
 const Scene SCENES[] = {
   {"eyes",   "Robot Eyes",     eyes_begin,    eyes_frame,    33, "[{\"key\":\"mood\",\"type\":\"choice\",\"options\":[\"auto\",\"normal\",\"happy\",\"love\",\"excited\",\"surprised\",\"wink\",\"thinking\",\"sleepy\",\"sleeping\",\"sad\",\"angry\",\"dizzy\"]}]", true},
@@ -387,6 +389,7 @@ const Scene SCENES[] = {
   {"buddy",  "AI Buddy",       buddy_begin,   buddy_frame,   40, "[]", false},
   {"bars",   "Music Bars",     bars_begin,    bars_frame,    35, "[]", false},
   {"nowplaying", "Now Playing", np_begin,     np_frame,      50, "[]", false},
+  {"char",   "Character",      char_begin,    char_frame,    10, "[]", false},
   {"canvas", "Canvas",         canvas_begin,  canvas_frame,  150, "[]", false},
   {"anim",   "Animation",      anim_begin,    anim_frame,    30, "[]", false},
   {"pair",   "Pair (QR)",      pair_begin,    pair_frame,    500, "[]", false},
@@ -406,6 +409,7 @@ bool extraCmd(const char* cmd, JsonDocument& d, JsonDocument& r) {
     pomoAction(a);
     return true;
   }
+  if (!strcmp(cmd, "char")) return charCmd(d, r);
   if (!strcmp(cmd, "pet")) { gotoScene("pet"); petAction(d["action"] | "show"); return true; }
   if (!strcmp(cmd, "loc")) {
     wLat = d["lat"] | 28.61f; wLon = d["lon"] | 77.21f;
