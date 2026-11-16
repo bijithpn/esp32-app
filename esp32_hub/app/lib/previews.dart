@@ -30,7 +30,7 @@ class ScenePreview extends StatelessWidget {
       case 'weather':
         return const WeatherScreen();
       case 'message':
-        return const NotifScreen();
+        return const MuseNotifPreview();
       case 'plasma':
         return Live(paint: _plasma);
       case 'stars':

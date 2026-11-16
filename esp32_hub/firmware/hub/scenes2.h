@@ -393,7 +393,7 @@ const Scene SCENES[] = {
   {"canvas", "Canvas",         canvas_begin,  canvas_frame,  150, "[]", false},
   {"anim",   "Animation",      anim_begin,    anim_frame,    30, "[]", false},
   {"pair",   "Pair (QR)",      pair_begin,    pair_frame,    500, "[]", false},
-  {"message","Message",        message_begin, message_frame, 30, "[]", false},
+  {"message","Message",        message_begin, message_frame, 10, "[]", false},
   {"info",   "Device Info",    info_begin,    info_frame,    50, "[]", false},
 };
 const int SCENE_COUNT = sizeof(SCENES) / sizeof(SCENES[0]);

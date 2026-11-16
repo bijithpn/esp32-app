@@ -79,6 +79,20 @@ void main() {
     expect(sent.last, ['head', true]);
   });
 
+  testWidgets('the notification preview shows the app, the text and your character at several sizes without overflowing', (t) async {
+    SharedPreferences.setMockInitialValues({'muse_look': '{"character":"bunny","coat":"sky","outfit":"crown"}'});
+    for (final w in [160.0, 320.0, 360.0]) {
+      await t.pumpWidget(MaterialApp(home: Scaffold(body: Center(child: SizedBox(width: w, height: w * 0.8, child: const MuseNotifPreview())))));
+      await t.pump(const Duration(milliseconds: 100));
+      await t.pump(const Duration(milliseconds: 800)); // the bubble has slid in
+      expect(find.text('WhatsApp'), findsOneWidget);
+      expect(find.text('Mom'), findsOneWidget);
+      expect(find.byType(MuseSprite), findsOneWidget);
+      expect(t.takeException(), isNull);
+    }
+    await t.pumpWidget(const SizedBox());
+  });
+
   testWidgets('choosing a character, colour and outfit updates the summary', (t) async {
     t.view.physicalSize = const Size(800, 2000);
     t.view.devicePixelRatio = 1;
