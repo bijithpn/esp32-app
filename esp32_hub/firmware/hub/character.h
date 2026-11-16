@@ -68,7 +68,117 @@ void chLoad() {
   uint8_t b[3];
   if (prefs.getBytes("chl", b, 3) == 3 && b[0] < CH_NCHARS && b[1] < CH_NCOATS && b[2] < CH_NOUTFITS) { chChar = b[0]; chCoat = b[1]; chOut = b[2]; }
 }
+#else
+static void chLoad() {}
+#endif
 
+// ---------- notifications: the character reads them out ----------
+// Layout (160 x 128): a speech bubble across the top with the app badge, name, title and text; the character below it on the
+// left (the 64 x 64 grid at 1x) looking at it; a little callout and the time left on the right.
+extern String msgApp, msgTitle, msgText;
+extern uint32_t msgStartMs, msgTtlMs;
+extern uint16_t appColor(const String& app);
+
+void charMessageBegin() {
+  chLoad();
+  if (muse_pixel_init()) muse_pixel_set_size(64);
+}
+
+// The character's reaction: a notification surprises it, then it reads with big curious eyes; a plain message makes it
+// talk, then wave hello. Everything comes from the real renderer's own expressions.
+static void chMsgPose(float t, float ts, bool notif, muse_pose_t* p) {
+  chPose(t, p);
+  p->emotion = MUSE_EMOTION_NEUTRAL; p->emotion_t = 0; p->happy = 0;
+  if (notif) {
+    p->emotion = ts < 1.4f ? MUSE_EMOTION_SURPRISED : MUSE_EMOTION_CURIOUS;
+    p->emotion_t = ts < 1.4f ? ts : ts - 1.4f;
+  } else if (ts < 2.5f) {
+    p->mode = MUSE_MODE_SPEAKING; p->mode_t = ts;
+    float lv = 0.5f + 0.5f * sinf(t * 11.0f);
+    p->level = lv * lv;
+  } else {
+    p->emotion = MUSE_EMOTION_GREETING; p->emotion_t = ts - 2.5f;
+  }
+}
+
+// Returns false if the character cannot be drawn (no memory): the caller then draws the plain card instead.
+bool charMessageFrame(float xoff) {
+  if (!muse_pixel_init()) return false;
+  uint32_t now = millis();
+  float t = now / 1000.0f, ts = (now - msgStartMs) / 1000.0f;
+  bool notif = msgApp.length() > 0;
+  uint16_t ac = notif ? appColor(msgApp) : rgb(110, 190, 255);
+  const uint16_t card = rgb(17, 22, 40), edge = rgb(40, 52, 86), muted = rgb(110, 120, 150);
+  const int ox = (int)xoff;
+
+  cv.fillScreen(0);
+  // the character, 1x, bottom left
+  muse_pose_t pose;
+  chMsgPose(t, ts, notif, &pose);
+  muse_pixel_render(&pose);
+  muse_pixel_scale(cv.getBuffer() + 68 * W + 4, W, 0, 63, 0, 59);
+
+  // speech bubble across the top, sliding in from the right, with a tail to the character's head
+  cv.fillRoundRect(4 + ox, 3, W - 8, 72, 9, card);
+  cv.drawRoundRect(4 + ox, 3, W - 8, 72, 9, edge);
+  cv.fillTriangle(28 + ox, 73, 44 + ox, 73, 30 + ox, 82, card);
+  cv.drawLine(28 + ox, 74, 30 + ox, 82, edge); cv.drawLine(44 + ox, 74, 30 + ox, 82, edge);
+  cv.drawFastHLine(29 + ox, 73, 15, card);
+  cv.fillRoundRect(4 + ox, 3, 5, 72, 2, ac);
+  cv.setTextWrap(false);
+  int y = 33;
+  if (notif) {
+    int bx = 24 + ox, by = 19;
+    if (ts < 1.2f) cv.drawCircle(bx, by, 10 + (int)(ts * 10) % 4, ac);   // a ring pulses as it arrives
+    cv.fillCircle(bx, by, 10, ac);
+    String initial = msgApp.substring(0, 1); initial.toUpperCase();
+    cv.setTextSize(2); cv.setTextColor(rgb(10, 12, 24)); cv.setCursor(bx - 5, by - 7); cv.print(initial);
+    cv.setTextSize(1);
+    cv.setTextColor(rgb(235, 240, 255)); cv.setCursor(40 + ox, 11); cv.print(msgApp.substring(0, 14));
+    cv.setTextColor(muted); cv.setCursor(40 + ox, 22); cv.print(now - msgStartMs < 60000 ? "now" : "earlier");
+    int bell = ts < 1.5f ? (int)(sinf(ts * 22) * 2) : 0, ex = W - 20 + ox;      // the bell rings at first
+    cv.fillRoundRect(ex - 4 + bell, 11, 9, 8, 3, rgb(255, 214, 110));
+    cv.fillRect(ex - 6 + bell, 18, 13, 2, rgb(255, 214, 110));
+    cv.fillCircle(ex + bell, 22, 2, rgb(255, 214, 110));
+  } else {
+    y = 10;                                                                  // plain message: text only
+  }
+  String lines[5];
+  if (notif && msgTitle.length()) {
+    int n = wrapText(msgTitle, 22, 1, lines);
+    cv.setTextColor(rgb(255, 255, 255)); if (n) { cv.setCursor(14 + ox, y); cv.print(lines[0]); }
+    y += 11;
+  }
+  // short plain messages are shown big, like the old speech bubble; notifications and long text stay small
+  int size = (!notif && msgText.length() <= 22) ? 2 : 1;
+  int lh = size == 1 ? 10 : 18, cpl = 132 / (6 * size);
+  int room = max(1, (72 - 8 * size - y) / lh + 1);
+  String body[6];
+  int n = wrapText(msgText, cpl, min(room, 5), body);
+  cv.setTextSize(size); cv.setTextColor(rgb(175, 186, 215));
+  if (!notif) cv.setTextColor(rgb(240, 244, 255));
+  for (int i = 0; i < n; i++) { cv.setCursor(14 + ox, y + i * lh); cv.print(body[i]); }
+  cv.setTextSize(1);
+
+  // a small callout from the character, then the time left
+  if (ox < 40) {
+    const char* say = notif ? (ts < 1.4f ? "Ooh!" : "Psst...") : (ts < 2.5f ? "..." : "Hi!");
+    int tw = strlen(say) * 6;
+    int px = 84, py = 92;
+    cv.fillRoundRect(px, py, tw + 14, 18, 8, ac);
+    cv.fillTriangle(px, py + 11, px + 2, py + 6, px - 7, py + 16, ac);
+    cv.setTextSize(1); cv.setTextColor(rgb(10, 12, 24)); cv.setCursor(px + 7, py + 5); cv.print(say);
+  }
+  if (msgTtlMs) {
+    float left = 1.0f - min(1.0f, (float)(now - msgStartMs) / msgTtlMs);
+    cv.fillRoundRect(80, 120, 72, 3, 1, rgb(30, 38, 64));
+    int w = (int)(72 * left);
+    if (w > 0) cv.fillRoundRect(80, 120, w, 3, 1, ac);
+  }
+  return true;
+}
+
+#ifndef CH_HOST
 // How the character answers a touch, using the real Muse behaviour tables: each character has its own reply to a tap on
 // head / cheek / hand / belly; poking too many times in a row makes it dizzy; stroking is petting.
 static uint32_t chTapAt[16];

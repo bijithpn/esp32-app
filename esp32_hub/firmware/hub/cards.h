@@ -27,7 +27,9 @@ uint16_t appColor(const String& app) {
 
 // ============================ MESSAGE / NOTIFICATION ============================
 int mFrame = 0;
-void message_begin(JsonVariantConst) { mFrame = 0; }
+bool charMessageFrame(float xoff);   // character.h: the Muse reads the message
+void charMessageBegin();
+void message_begin(JsonVariantConst) { mFrame = 0; charMessageBegin(); }
 
 void notifCard(float xoff) {
   uint32_t now = millis();
@@ -81,6 +83,7 @@ void notifCard(float xoff) {
 void message_frame() {
   float p = min(1.0f, mFrame / 16.0f);
   float xoff = (1 - easeOutBack(p)) * W;
+  if (charMessageFrame(xoff)) { mFrame++; return; }
   if (msgApp.length()) { notifCard(xoff); mFrame++; return; }
 
   // plain message: a speech bubble from the mascot

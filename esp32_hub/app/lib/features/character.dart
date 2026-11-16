@@ -429,3 +429,97 @@ class _CharacterCardState extends State<CharacterCard> {
         ]),
       );
 }
+
+/// What a notification looks like on the Hub: your character looks up at it, surprised, then reads along under a speech bubble
+/// (drawn at the display's 160 x 128 proportions; the Hub draws the real thing with the real animated character).
+class MuseNotifPreview extends StatefulWidget {
+  const MuseNotifPreview({super.key, this.app = 'WhatsApp', this.title = 'Mom', this.body = 'Dinner is ready, come home soon!', this.color = const Color(0xFF25D366)});
+  final String app, title, body;
+  final Color color;
+  @override
+  State<MuseNotifPreview> createState() => _MuseNotifPreviewState();
+}
+
+class _MuseNotifPreviewState extends State<MuseNotifPreview> with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(vsync: this, duration: const Duration(seconds: 6));
+  MuseLook _look = const MuseLook();
+
+  @override
+  void initState() {
+    super.initState();
+    loadMuseLook().then((l) {
+      if (mounted) setState(() => _look = l);
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (reducedMotion(context)) {
+      _c.value = 0.5; // one calm frame: reading
+      _c.stop();
+    } else if (!_c.isAnimating) {
+      _c.repeat();
+    }
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(builder: (context, box) {
+        final u = box.maxWidth / 160;
+        return AnimatedBuilder(
+          animation: _c,
+          builder: (context, _) {
+            final ts = _c.value * 6; // seconds since the notification arrived
+            final slide = (1 - Curves.easeOutBack.transform((ts / 0.5).clamp(0.0, 1.0))) * 160 * u;
+            final surprised = ts < 1.4;
+            final pop = surprised ? math.sin(ts / 1.4 * math.pi) * 5 * u : 0.0;
+            final say = surprised ? 'Ooh!' : 'Psst...';
+            return ColoredBox(
+              color: Colors.black,
+              child: Stack(clipBehavior: Clip.hardEdge, children: [
+                Positioned(left: 4 * u, top: 68 * u - pop, width: 64 * u, height: 64 * u, child: MuseSprite(look: _look, size: 64 * u)),
+                Positioned(
+                  left: 4 * u + slide,
+                  top: 3 * u,
+                  width: 152 * u,
+                  height: 72 * u,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(color: const Color(0xFF111628), borderRadius: BorderRadius.circular(9 * u), border: Border.all(color: const Color(0xFF283456), width: u)),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(9 * u),
+                      child: Stack(children: [
+                        Positioned(left: 0, top: 0, bottom: 0, width: 5 * u, child: ColoredBox(color: widget.color)),
+                        Positioned(left: 11 * u, top: 6 * u, width: 20 * u, height: 20 * u, child: DecoratedBox(decoration: BoxDecoration(color: widget.color, shape: BoxShape.circle), child: Center(child: Text(widget.app.isEmpty ? '!' : widget.app[0].toUpperCase(), style: TextStyle(color: const Color(0xFF0A0C18), fontSize: 13 * u, fontWeight: FontWeight.w800))))),
+                        Positioned(left: 36 * u, top: 6 * u, child: Text(widget.app, style: TextStyle(color: HubColors.text, fontSize: 8.5 * u, fontWeight: FontWeight.w600))),
+                        Positioned(left: 36 * u, top: 17 * u, child: Text('now', style: TextStyle(color: HubColors.muted, fontSize: 7.5 * u))),
+                        Positioned(right: 11 * u, top: 7 * u, child: Icon(Icons.notifications_rounded, size: 11 * u, color: const Color(0xFFFFD66E))),
+                        Positioned(left: 11 * u, top: 29 * u, right: 8 * u, child: Text(widget.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.white, fontSize: 8.5 * u))),
+                        Positioned(left: 11 * u, top: 40 * u, right: 8 * u, child: Text(widget.body, maxLines: 3, overflow: TextOverflow.ellipsis, style: TextStyle(color: const Color(0xFFAFBAD7), fontSize: 7.6 * u, height: 1.25))),
+                      ]),
+                    ),
+                  ),
+                ),
+                if (slide < 40 * u)
+                  Positioned(
+                    left: 84 * u,
+                    top: 92 * u,
+                    child: Container(
+                      padding: EdgeInsets.symmetric(horizontal: 7 * u, vertical: 3.5 * u),
+                      decoration: BoxDecoration(color: widget.color, borderRadius: BorderRadius.circular(8 * u)),
+                      child: Text(say, style: TextStyle(color: const Color(0xFF0A0C18), fontSize: 8 * u, fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                Positioned(left: 80 * u, top: 120 * u, width: 72 * u, height: 3 * u, child: DecoratedBox(decoration: BoxDecoration(color: const Color(0xFF1E2640), borderRadius: BorderRadius.circular(u)))),
+                Positioned(left: 80 * u, top: 120 * u, width: 72 * u * (1 - _c.value), height: 3 * u, child: DecoratedBox(decoration: BoxDecoration(color: widget.color, borderRadius: BorderRadius.circular(u)))),
+              ]),
+            );
+          },
+        );
+      });
+}

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../core/app_prefs.dart';
 import '../core/bridge.dart';
 import '../core/connection.dart';
+import '../features/character.dart';
 import '../theme.dart';
 
 /// Notification mirroring: permission, what is shared, which apps are excluded, a test, and whether delivery worked.
@@ -176,7 +177,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> with WidgetsB
 class _NotifPreview extends StatelessWidget {
   const _NotifPreview();
   @override
-  Widget build(BuildContext context) => const NotifScreen();
+  Widget build(BuildContext context) => const MuseNotifPreview();
 }
 
 class _Switch extends StatelessWidget {
