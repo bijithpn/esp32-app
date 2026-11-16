@@ -374,24 +374,16 @@ void pair_frame() {
 
 // ============================ REGISTRY ============================
 const Scene SCENES[] = {
-  {"eyes",   "Robot Eyes",     eyes_begin,    eyes_frame,    33, "[{\"key\":\"mood\",\"type\":\"choice\",\"options\":[\"auto\",\"normal\",\"happy\",\"love\",\"excited\",\"surprised\",\"wink\",\"thinking\",\"sleepy\",\"sleeping\",\"sad\",\"angry\",\"dizzy\"]}]", true},
+  {"ascii",  "ASCII Animals",  ascii_begin,   ascii_frame,   40, "[]", true},
   {"bounce", "Bouncing Logo",  bounce_begin,  bounce_frame,  25, "[{\"key\":\"text\",\"type\":\"text\",\"max\":8}]", true},
   {"matrix", "Matrix Rain",    matrix_begin,  matrix_frame,  45, "[]", true},
-  {"stars",  "Starfield",      stars_begin,   stars_frame,   30, "[]", true},
-  {"plasma", "Plasma",         plasma_begin,  plasma_frame,  40, "[]", true},
-  {"life",   "Game of Life",   life_begin,    life_frame,    90, "[]", true},
-  {"mandel", "Mandelbrot",     mandel_begin,  mandel_frame,  30, "[]", true},
-  {"clock",  "Analog Clock",   clock_begin,   clock_frame,   40, "[]", true},
   {"weather","Weather",        weather_begin, weather_frame, 50, "[]", true},
   {"name",   "Name Wave",      name_begin,    name_frame,    30, "[{\"key\":\"text\",\"type\":\"text\",\"max\":12}]", true},
   {"pet",    "Pixel Pet",      pet_begin,     pet_frame,     40, "[]", false},
   {"pomo",   "Pomodoro",       pomo_begin,    pomo_frame,    100, "[]", false},
   {"ping",   "Ping Monitor",   ping_begin,    ping_frame,    1000, "[]", false},
-  {"buddy",  "AI Buddy",       buddy_begin,   buddy_frame,   40, "[]", false},
-  {"bars",   "Music Bars",     bars_begin,    bars_frame,    35, "[]", false},
   {"nowplaying", "Now Playing", np_begin,     np_frame,      50, "[]", false},
   {"char",   "Character",      char_begin,    char_frame,    10, "[]", false},
-  {"ascii",  "ASCII Animals",  ascii_begin,   ascii_frame,   40, "[]", true},
   {"canvas", "Canvas",         canvas_begin,  canvas_frame,  150, "[]", false},
   {"anim",   "Animation",      anim_begin,    anim_frame,    30, "[]", false},
   {"pair",   "Pair (QR)",      pair_begin,    pair_frame,    500, "[]", false},
@@ -418,25 +410,6 @@ bool extraCmd(const char* cmd, JsonDocument& d, JsonDocument& r) {
     wLat = d["lat"] | 28.61f; wLon = d["lon"] | 77.21f;
     prefs.putFloat("lat", wLat); prefs.putFloat("lon", wLon);
     wLast = 0; wCode = -1;
-    return true;
-  }
-  if (!strcmp(cmd, "say")) {      // {"text":"..","mood":"happy"}  (mood optional: picked from the words)
-    gotoScene("buddy");
-    int mi = d["mood"].is<const char*>() ? moodFromName(d["mood"]) : -1;
-    buddySay(String(d["text"] | ""), mi);
-    faceSet(buddyMood);
-    return true;
-  }
-  if (!strcmp(cmd, "mood")) {     // {"mood":"love"}: show a mood on the robot eyes right now
-    const char* m = d["mood"] | "normal";
-    gotoScene("eyes"); eyesSetMood(String(m));
-    return true;
-  }
-  if (!strcmp(cmd, "bands")) {
-    gotoScene("bars");
-    JsonArrayConst a = d["v"].as<JsonArrayConst>();
-    for (int i = 0; i < NB && i < (int)a.size(); i++) barV[i] = constrain((float)a[i], 0.0f, 255.0f);
-    barLast = millis();
     return true;
   }
   if (!strcmp(cmd, "nowplaying")) {

@@ -11,11 +11,9 @@ class QuickAction {
 }
 
 const quickActionLibrary = <QuickAction>[
-  QuickAction('clock', 'Show clock', 'schedule', [{'cmd': 'scene', 'id': 'clock'}]),
+  QuickAction('ascii', 'Show animals', 'pets', [{'cmd': 'scene', 'id': 'ascii'}]),
   QuickAction('pomo', 'Start focus', 'timer', [{'cmd': 'pomo', 'action': 'start'}]),
   QuickAction('weather', 'Show weather', 'cloud', [{'cmd': 'scene', 'id': 'weather'}]),
-  QuickAction('happy', 'Happy eyes', 'mood', [{'cmd': 'mood', 'mood': 'happy'}]),
-  QuickAction('sleepy', 'Sleepy eyes', 'bedtime', [{'cmd': 'mood', 'mood': 'sleepy'}]),
   QuickAction('next', 'Next scene', 'skip', [{'cmd': 'next'}]),
   QuickAction('pairing', 'Pairing mode', 'wifi', [{'cmd': 'pairing'}]),
 ];
@@ -48,13 +46,13 @@ final builtinPresets = <Preset>[
   ]),
   Preset(id: 'relax', name: 'Relax', icon: 'spa', builtin: true, note: 'Ambient scenes, slow rotation', commands: [
     {'cmd': 'dim', 'level': 0},
-    {'cmd': 'scene', 'id': 'plasma'},
+    {'cmd': 'scene', 'id': 'ascii'},
     {'cmd': 'auto', 'sec': 60},
   ]),
-  Preset(id: 'night', name: 'Night', icon: 'night', builtin: true, note: 'Clock, dimmed in software, no motion', commands: [
+  Preset(id: 'night', name: 'Night', icon: 'night', builtin: true, note: 'The animals, dimmed in software, no auto-rotate', commands: [
     {'cmd': 'dim', 'level': 2},
     {'cmd': 'auto', 'sec': 0},
-    {'cmd': 'scene', 'id': 'clock'},
+    {'cmd': 'scene', 'id': 'ascii'},
   ]),
 ];
 
@@ -62,7 +60,7 @@ final builtinPresets = <Preset>[
 class AppPrefs extends ChangeNotifier {
   static const _kQuick = 'quick_actions_v1', _kPresets = 'presets_v1', _kHide = 'notif_hide_content', _kBlocked = 'notif_blocked';
 
-  List<String> quickIds = ['clock', 'pomo', 'weather', 'happy'];
+  List<String> quickIds = ['ascii', 'pomo', 'weather', 'next'];
   List<Preset> custom = [];
   bool hideContent = false;
   Set<String> blocked = {};

@@ -375,3 +375,5 @@ or artwork was copied from the page. The app has a screen for it (live preview t
 - Firmware: `firmware/hub/ascii_engine.h` (simulation and renderer, no Arduino dependency) and `ascii.h` (scene and command). App: `lib/features/ascii_engine.dart`, `ascii_animals.dart`.
 - Test the engine on a PC: `cd tools && g++ -std=c++17 -O1 -I../firmware/hub ascii_host_test.cpp -o /tmp/ascii_host_test && /tmp/ascii_host_test [animal 0-6] [seconds]` (prints a frame when an animal is given).
 - Not verified on hardware: frame time and look on the real ST7735 (the engine and the firmware build were checked on a PC; the build uses 82 % flash, +10 KB RAM).
+
+**Scenes removed in app 2.4.0 / firmware 0.10.0:** Mandelbrot, Analog Clock, Game of Life, Plasma, Starfield, Robot Eyes, AI Buddy and Music Bars (with the microphone visualiser). The board now starts on the ASCII animals. The `say`, `mood` and `bands` commands went with them.

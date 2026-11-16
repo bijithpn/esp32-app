@@ -118,10 +118,10 @@ void main() {
     });
     test('quick actions persist', () async {
       final p = AppPrefs();
-      await p.setQuick(['clock', 'next']);
+      await p.setQuick(['ascii', 'next']);
       final q = AppPrefs();
       await q.load();
-      expect(q.quickIds, ['clock', 'next']);
+      expect(q.quickIds, ['ascii', 'next']);
     });
   });
 
@@ -191,7 +191,7 @@ void main() {
     test('every scene the firmware has is in the app catalogue (nothing was dropped)', () {
       final src = File('../firmware/hub/scenes2.h').readAsStringSync();
       final ids = RegExp(r'\{"(\w+)",\s*"[^"]+",\s*\w+,\s*\w+,').allMatches(src).map((m) => m.group(1)!).toList();
-      expect(ids.length, greaterThanOrEqualTo(20));
+      expect(ids.length, greaterThanOrEqualTo(14));
       for (final id in ids) {
         expect(sceneCatalog.containsKey(id), isTrue, reason: 'scene "$id" missing from the app');
       }

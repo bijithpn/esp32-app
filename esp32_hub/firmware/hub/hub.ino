@@ -25,7 +25,7 @@
 #include "esp_bt.h"
 #include "qrcode_lib.h"   // vendored copy of the MIT-licensed "QRCode" library (ESP-IDF ships a different qrcode.h)
 
-#define FW_VERSION "0.9.0"
+#define FW_VERSION "0.10.0"
 #define TFT_CS 15
 #define TFT_DC 2
 #define TFT_RST 4
@@ -719,7 +719,8 @@ void setup() {
   otaFrom = prefs.getString("ota_from", "");
   if (otaFrom.length()) { otaState = "updated"; prefs.remove("ota_from"); }   // this boot follows a successful update
   discoveryBegin();                              // UDP discovery on port 41234
-  pendingScene = findScene(safeMode ? "eyes" : prefs.getString("scene", "eyes").c_str());   // safe mode: no saved scene that might be the one that crashed
+  pendingScene = findScene(safeMode ? "ascii" : prefs.getString("scene", "ascii").c_str());   // safe mode: no saved scene that might be the one that crashed
+  if (pendingScene < 0) pendingScene = findScene("ascii");   // a saved scene that no longer exists
   if (pendingScene < 0) pendingScene = 0;
   switchScene(findScene("info"), JsonVariantConst(), false);
   if (!apMode) infoUntil = millis() + 6000;   // show IP for 6 s, then the saved scene
@@ -767,7 +768,7 @@ void loop() {
   if (rebootAt && now > rebootAt) ESP.restart();
   if (!strcmp(SCENES[curScene].id, "nowplaying") && !npPlaying && npPauseAt && now - npPauseAt > 25000) {   // music stopped: go back
     npPauseAt = 0;
-    switchScene(npPrev >= 0 ? npPrev : findScene("eyes"), JsonVariantConst(), false);
+    switchScene(npPrev >= 0 ? npPrev : findScene("ascii"), JsonVariantConst(), false);
   }
   if (infoUntil && now > infoUntil) { infoUntil = 0; switchScene(pendingScene, JsonVariantConst()); }
   if (msgUntil && now > msgUntil) { msgUntil = 0; switchScene(prevScene, JsonVariantConst(), false); }

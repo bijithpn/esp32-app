@@ -6,7 +6,7 @@
 import 'dart:math' as math;
 import 'dart:typed_data';
 
-const int asciiW = 160, asciiH = 128, asciiCellW = 6, asciiCellH = 8, asciiCols = 27, asciiRows = 16, asciiCells = asciiCols * asciiRows;
+const int asciiW = 160, asciiH = 128, asciiCellW = 4, asciiCellH = 6, asciiCols = 40, asciiRows = 22, asciiCells = asciiCols * asciiRows;
 const int _maxCr = 12, _maxFood = 24;
 const double _pi = math.pi, _tau = math.pi * 2;
 
@@ -28,16 +28,17 @@ const asciiCommonKnobs = <AsciiKnob>[
   AsciiKnob('sparkle', 'Sparkle', 0, 0.5, 'How often cells flash white, like light catching scales or wings.', step: 0.01),
   AsciiKnob('fog', 'Distance fade', 0, 1, 'How much far-away ones fade into the background.', step: 0.01),
   AsciiKnob('shimmer', 'Shimmer', 0, 1, 'How much surfaces roll brighter and darker as the animal turns.', step: 0.01),
+  AsciiKnob('grid', 'Grid', 0, 4, 'How visible the background grid lines are.'),
   AsciiKnob('direction', 'Direction (°)', 0, 360, 'Which way they travel: 0 is right, 90 is up. Used when Corner to corner is off.', step: 1),
 ];
 
 class AsciiTune {
-  AsciiTune({this.density = 1, this.speed = 1, this.size = 1, this.trail = 1, this.trailFade = 0.5, this.hue = 0, this.sparkle = 0.12, this.fog = 0.3, this.shimmer = 0.3, this.direction = 49, this.corner = true, List<double>? k}) : k = k ?? [1, 1, 1];
-  double density, speed, size, trail, trailFade, hue, sparkle, fog, shimmer, direction;
+  AsciiTune({this.density = 1, this.speed = 1, this.size = 1, this.trail = 1, this.trailFade = 0.5, this.hue = 0, this.sparkle = 0.12, this.fog = 0.3, this.shimmer = 0.3, this.direction = 49, this.corner = true, this.grid = 1, List<double>? k}) : k = k ?? [1, 1, 1];
+  double density, speed, size, trail, trailFade, hue, sparkle, fog, shimmer, direction, grid;
   bool corner;
   List<double> k;
 
-  AsciiTune copy() => AsciiTune(density: density, speed: speed, size: size, trail: trail, trailFade: trailFade, hue: hue, sparkle: sparkle, fog: fog, shimmer: shimmer, direction: direction, corner: corner, k: List.of(k));
+  AsciiTune copy() => AsciiTune(density: density, speed: speed, size: size, trail: trail, trailFade: trailFade, hue: hue, sparkle: sparkle, fog: fog, shimmer: shimmer, direction: direction, corner: corner, grid: grid, k: List.of(k));
 
   double get(String key, AsciiAnimal a) {
     switch (key) {
@@ -51,6 +52,7 @@ class AsciiTune {
       case 'fog': return fog;
       case 'shimmer': return shimmer;
       case 'direction': return direction;
+      case 'grid': return grid;
     }
     final i = a.knobs.indexWhereKey(key);
     return i < 0 ? 0 : k[i];
@@ -68,6 +70,7 @@ class AsciiTune {
       case 'fog': fog = v; return;
       case 'shimmer': shimmer = v; return;
       case 'direction': direction = v; return;
+      case 'grid': grid = v; return;
     }
     final i = a.knobs.indexWhereKey(key);
     if (i >= 0) k[i] = v;
@@ -76,7 +79,7 @@ class AsciiTune {
   /// The JSON the Hub's `ascii` command takes for the whole tuning.
   Map<String, dynamic> toCommand(AsciiAnimal a) => {
         'density': _r(density), 'speed': _r(speed), 'size': _r(size), 'trail': _r(trail), 'trailFade': _r(trailFade), 'hue': _r(hue),
-        'sparkle': _r(sparkle), 'fog': _r(fog), 'shimmer': _r(shimmer), 'direction': _r(direction), 'corner': corner,
+        'sparkle': _r(sparkle), 'fog': _r(fog), 'shimmer': _r(shimmer), 'direction': _r(direction), 'grid': _r(grid), 'corner': corner,
         for (var i = 0; i < 3; i++) a.knobs[i].key: _r(k[i]),
       };
   static double _r(double v) => (v * 1000).roundToDouble() / 1000;
@@ -102,37 +105,37 @@ const asciiAnimals = <AsciiAnimal>[
     AsciiKnob('flutter', 'Flutter', 0, 3, 'How much their path zigzags.'),
     AsciiKnob('glide', 'Glide', 0, 4, 'How often they stop flapping and glide with wings held flat.'),
     AsciiKnob('flapRate', 'Flap rate', 0.2, 3, 'How fast their wings beat.'),
-  ], 4, 1.0, 28, [96, 156, 255], [1, 1, 1, 1.5, 0.4, 0, 0.12, 0.45, 0.3, 0.6, 1.5, 1.0]),
+  ], 4, 1.0, 28, [96, 156, 255], [1, 1, 1, 1.5, 0.4, 0, 0.12, 0.05, 0.3, 0.6, 1.5, 1.0]),
   AsciiAnimal('koi', 'Koi', 0xF4C42C, [
     AsciiKnob('meander', 'Meander', 0, 3, 'How much they weave in lazy S-curves.'),
     AsciiKnob('tailBeat', 'Tail beat', 0.2, 3, 'How fast and wide the tail swishes.'),
     AsciiKnob('foodRange', 'Food range', 0, 200, 'How close a koi has to be to notice food you drop. Tap the screen to drop some.', step: 5),
-  ], 4, 1.15, 16, [110, 170, 220], [1, 1, 1, 1, 0.5, 0, 0.12, 0.35, 0.3, 1, 1, 90]),
+  ], 3, 1.15, 16, [110, 170, 220], [1, 1, 1, 1, 0.5, 0, 0.12, 0.1, 0.3, 1, 1, 90]),
   AsciiAnimal('jellyfish', 'Jellyfish', 0xE678FF, [
     AsciiKnob('pulseRate', 'Pulse rate', 0.2, 3, 'How often the bell pulses.'),
     AsciiKnob('pulsePower', 'Pulse power', 0.2, 3, 'How hard each pulse pushes, and how much it glows.'),
     AsciiKnob('tentacles', 'Tentacles', 0.3, 2, 'How long the tentacles trail.'),
-  ], 4, 1.1, 12, [190, 130, 255], [1, 1, 1, 1, 0.5, 0, 0.18, 0.3, 0.3, 1, 1, 1]),
+  ], 3, 1.1, 12, [190, 130, 255], [1, 1, 1, 1, 0.5, 0, 0.18, 0.1, 0.3, 1, 1, 1]),
   AsciiAnimal('dragonflies', 'Dragonfly', 0x32DC78, [
     AsciiKnob('hover', 'Hover time', 0, 3, 'How long they hang in the air between darts.'),
     AsciiKnob('cruising', 'Cruising', 0, 1, 'How often they cruise instead of hovering.'),
     AsciiKnob('dart', 'Dart speed', 0.3, 3, 'How fast they dart.'),
-  ], 5, 0.85, 32, [120, 232, 150], [1, 1, 1, 0.6, 1.2, 0, 0.18, 0.3, 0.3, 1.3, 0.5, 1.5]),
+  ], 5, 0.85, 32, [120, 232, 150], [1, 1, 1, 0.6, 1.2, 0, 0.18, 0.1, 0.3, 1.3, 0.5, 1.5]),
   AsciiAnimal('frogs', 'Frog', 0x60E882, [
     AsciiKnob('hop', 'How often', 0.2, 3, 'How often they hop.'),
     AsciiKnob('leap', 'Leap length', 0.4, 2.5, 'How far each leap goes.'),
     AsciiKnob('height', 'Leap height', 0.2, 2.5, 'How high they jump.'),
-  ], 4, 0.95, 34, [150, 220, 170], [1, 1, 1, 1, 0.8, 0, 0.12, 0.3, 0.2, 1, 1, 1]),
+  ], 4, 0.95, 34, [150, 220, 170], [1, 1, 1, 1, 0.8, 0, 0.12, 0.1, 0.2, 1, 1, 1]),
   AsciiAnimal('cranes', 'Crane', 0xECEEF2, [
     AsciiKnob('wingbeat', 'Wingbeat', 0.2, 3, 'How fast the wings beat.'),
     AsciiKnob('glide', 'Glide', 0, 3, 'How often they glide with wings held out.'),
     AsciiKnob('foldFlap', 'Folding flap', 0, 1, 'A deeper, folding wingbeat.', step: 1),
-  ], 2, 1.0, 24, [200, 210, 225], [1, 1, 1, 0, 1, 0, 0.04, 0.26, 0.1, 1, 1, 0]),
+  ], 2, 1.0, 24, [200, 210, 225], [1, 1, 1, 0, 1, 0, 0.04, 0.1, 0.1, 1, 1, 0]),
   AsciiAnimal('crabs', 'Crab', 0xCC5234, [
     AsciiKnob('burst', 'Burst length', 0.2, 3, 'How long they scuttle.'),
     AsciiKnob('rest', 'Pause length', 0, 3, 'How long they stop between bursts.'),
     AsciiKnob('scare', 'Scare', 0, 1.5, 'How fast they run from a tap.'),
-  ], 5, 0.8, 28, [206, 178, 136], [1, 1, 1, 0.6, 1, 0, 0.03, 0.25, 0.1, 1, 1, 0.55]),
+  ], 4, 0.8, 28, [206, 178, 136], [1, 1, 1, 0.6, 1, 0, 0.03, 0.1, 0.1, 1, 1, 0.55]),
 ];
 
 AsciiAnimal? asciiAnimalById(String id) {
@@ -186,6 +189,20 @@ int _hash3(int a, int b, int c) {
 
 double _hash01(int a, int b, int c) => _hash3(a, b, c) / 4294967296.0;
 
+/// The 3 x 5 pixel font the cells use, the same as the Hub's: 3 bits a row, top row in the high bits. 0 for a character it has no glyph for.
+int asciiGlyphBits(int ch) {
+  const k = '.,:;ox%#@-\\|/\'*+~O>&`';
+  const rows = [
+    [0, 0, 0, 0, 2], [0, 0, 0, 2, 4], [0, 2, 0, 2, 0], [0, 2, 0, 2, 4], [0, 2, 5, 5, 2], [0, 5, 2, 5, 0], [5, 1, 2, 4, 5], [5, 7, 5, 7, 5], [7, 5, 7, 4, 7],
+    [0, 0, 7, 0, 0], [4, 4, 2, 1, 1], [2, 2, 2, 2, 2], [1, 1, 2, 4, 4], [2, 2, 0, 0, 0], [5, 2, 7, 2, 5], [0, 2, 7, 2, 0], [0, 3, 6, 0, 0], [7, 5, 5, 5, 7], [4, 2, 1, 2, 4],
+    [2, 5, 2, 5, 3], [4, 2, 0, 0, 0],
+  ];
+  final i = k.indexOf(String.fromCharCode(ch));
+  if (i < 0) return 0;
+  final r = rows[i];
+  return r[0] << 12 | r[1] << 9 | r[2] << 6 | r[3] << 3 | r[4];
+}
+
 /// RGB565, the same packing the Hub uses.
 int _pack(double r, double g, double b) {
   final R = _clamp(r, 0, 255).toInt(), G = _clamp(g, 0, 255).toInt(), B = _clamp(b, 0, 255).toInt();
@@ -197,8 +214,6 @@ int asciiColor565(int v) {
   final r = (v >> 11) & 31, g = (v >> 5) & 63, b = v & 31;
   return 0xFF000000 | ((r << 3 | r >> 2) << 16) | ((g << 2 | g >> 4) << 8) | (b << 3 | b >> 2);
 }
-
-const _inkC = [30, 30, 42];
 
 /// The simulation and the cell buffers. Call [step] then [render] every frame; the painter reads the arrays.
 class AsciiWorld {
@@ -273,7 +288,7 @@ class AsciiWorld {
     final h = _hash3(cx, cy, id);
     final jit = _hash01(cx, cy, (time * 2.4).toInt() + id);
     final lum = (0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2]) / 255.0;
-    if (cov < 0.6) {
+    if (cov < 0.3) {
       if (flag[ci] == 2 || kind == _Kind.spark) return;
       flag[ci] = 1; glyph[ci] = _thin.codeUnitAt((h >> 8) % 4); col[ci] = _tint(c, light, 0, math.max(fogv, 0) + 0.5 - 0.35 * cov);
       return;
@@ -310,18 +325,14 @@ class AsciiWorld {
       for (var i = x0; i <= x1; i++) {
         if (i < 0 || j < 0 || i >= asciiCols || j >= asciiRows) continue;
         var n = 0;
-        var centre = false;
         for (var s = 0; s < 5; s++) {
           final dx = i * asciiCellW + _ox[s] * asciiCellW - cx, dy = j * asciiCellH + _oy[s] * asciiCellH - cy;
           final u = (dx * ca + dy * sa) / rx, v = (dy * ca - dx * sa) / ry;
-          if (u * u + v * v <= 1) {
-            n++;
-            if (s == 0) centre = true;
-          }
+          if (u * u + v * v <= 1) n++;
         }
         if (n == 0) continue;
         final cov = n / 5.0;
-        _putCell(j * asciiCols + i, i, j, id, kind, c, light, centre && cov >= 0.6 ? 1.0 : cov, fogv);
+        _putCell(j * asciiCols + i, i, j, id, kind, c, light, n >= 2 ? 1.0 : cov, fogv);
       }
     }
   }
@@ -339,7 +350,7 @@ class AsciiWorld {
         if (d <= r) {
           _putCell(j * asciiCols + i, i, j, id, kind, c, light, 1, fogv);
         } else if (d <= r + asciiCellW * 0.45) {
-          _putCell(j * asciiCols + i, i, j, id, kind, c, light, 0.4, fogv);
+          _putCell(j * asciiCols + i, i, j, id, kind, c, light, 0.2, fogv);
         }
       }
     }
@@ -389,7 +400,7 @@ class AsciiWorld {
     for (var j = oy - radius; j <= oy + radius; j++) {
       for (var i = ox - radius; i <= ox + radius; i++) {
         if (i < 0 || j < 0 || i >= asciiCols || j >= asciiRows) continue;
-        final d = math.sqrt(((i - ox) * (i - ox)) + (j - oy) * 1.4 * (j - oy) * 1.4);
+        final d = math.sqrt(((i - ox) * (i - ox)) + (j - oy) * 1.5 * (j - oy) * 1.5);
         if (d > radius + 0.5) continue;
         final ci = j * asciiCols + i;
         energy[ci] = math.min(1.6, energy[ci] + amount * (1 - d / (radius + 1)));
@@ -400,8 +411,8 @@ class AsciiWorld {
   // ------------------------------------------------------------------------------------------- world helpers
   double get _course => tune.corner ? math.atan2(-asciiH.toDouble(), asciiW.toDouble()) : -tune.direction * _pi / 180;
   double get _group => _course + 0.04 * (math.sin(time * 0.13) + 0.5 * math.sin(time * 0.31 + 1.7));
-  double get _base => 58.0 * animal.scale;
-  double _depthOf(double roll) => 0.6 + 0.4 * math.pow(roll, 1.6);
+  double get _base => 62.0 * animal.scale;
+  double _depthOf(double roll) => 0.8 + 0.2 * math.pow(roll, 1.6);
   double _cruise(_Cr c) => animal.speed * (0.55 + 0.45 * c.depth) * tune.speed;
 
   (double, double) _toW(_Cr c, double u, double v) {
@@ -554,7 +565,7 @@ class AsciiWorld {
       }
       return;
     }
-    _stamp(x, y, 3, 1.4);
+    _stamp(x, y, 4, 1.4);
     for (var i = 0; i < count; i++) {
       final c = _cr[i];
       var dx = c.x - x, dy = c.y - y, d = math.sqrt(dx * dx + dy * dy);
@@ -706,7 +717,7 @@ class AsciiWorld {
           c.leaping = false; c.x = c.tx; c.y = c.ty;
           c.until = time + _rf(0.5, 2.2) / (k[0] * tune.speed);
           c.aim = _group + (c.bias + _rf(-0.7, 0.7)) * 0.06;
-          _stamp(c.x, c.y, 2, 0.7 * c.depth * tune.trail);
+          _stamp(c.x, c.y, 3, 0.7 * c.depth * tune.trail);
           if (_passed(c, c.span)) _reenter(c);
           return;
         }
@@ -762,25 +773,26 @@ class AsciiWorld {
 
   // ------------------------------------------------------------------------------------------- drawing each animal
   void _butterfly(_Cr c) {
-    const dark = [22, 28, 62], wing = [78, 159, 255], hi = [236, 240, 255], edge2 = [30, 50, 120];
-    final s = c.span, op = math.max(0.1, c.open), hd = c.heading + 0.06 * math.sin(c.phase), light = 0.6 + 0.4 * c.open;
+    // Two-tone wings (blue forewings, orange hindwings) with white spots, a bright body and feelers.
+    const fore = [70, 150, 255], hind = [255, 150, 50], bodyC = [240, 240, 250], white = [255, 255, 255], dark = [20, 40, 110];
+    final s = c.span, op = math.max(0.12, c.open), hd = c.heading + 0.06 * math.sin(c.phase);
     final b = _Cr()..x = c.x..y = c.y..span = s..heading = hd;
     for (var sd = -1; sd <= 1; sd += 2) {
-      var p = _toW(b, 0.12, 0.2 * sd * op);
-      _ell(p.$1, p.$2, 0.3 * s, 0.27 * s * op, hd + sd * 0.35, dark, _Kind.edge, c.depth, c.id, light);
-      _ell(p.$1, p.$2, 0.22 * s, 0.2 * s * op, hd + sd * 0.35, wing, _Kind.body, c.depth, c.id, light);
-      p = _toW(b, -0.14, 0.15 * sd * op);
-      _ell(p.$1, p.$2, 0.2 * s, 0.17 * s * op, hd - sd * 0.5, dark, _Kind.edge, c.depth, c.id, light);
-      _ell(p.$1, p.$2, 0.14 * s, 0.11 * s * op, hd - sd * 0.5, edge2, _Kind.body, c.depth, c.id, light);
-      p = _toW(b, 0.2, 0.28 * sd * op);
-      _dot(p.$1, p.$2, '.', hi, c.depth);
+      var p = _toW(b, 0.16, 0.2 * sd * op);
+      _ell(p.$1, p.$2, 0.21 * s, 0.25 * s * op, hd + sd * 0.45, fore, _Kind.body, c.depth, c.id, 1.0);
+      p = _toW(b, 0.2, 0.3 * sd * op);
+      _spot(p.$1, p.$2, 'o', dark, white, c.depth);
+      p = _toW(b, -0.14, 0.17 * sd * op);
+      _ell(p.$1, p.$2, 0.17 * s, 0.18 * s * op, hd - sd * 0.5, hind, _Kind.body, c.depth, c.id, 1.0);
+      p = _toW(b, -0.17, 0.2 * sd * op);
+      _dot(p.$1, p.$2, '.', white, c.depth);
     }
-    final p0 = _toW(b, -0.2, 0), p1 = _toW(b, 0.22, 0);
-    _cap(p0.$1, p0.$2, p1.$1, p1.$2, math.max(1.2, 0.035 * s), _inkC, _Kind.edge, c.depth, c.id);
-    final r = 0.012 * math.sin(time * 3 + c.id);
+    final p0 = _toW(b, -0.24, 0), p1 = _toW(b, 0.22, 0);
+    _cap(p0.$1, p0.$2, p1.$1, p1.$2, math.max(2.0, 0.045 * s), bodyC, _Kind.edge, c.depth, c.id, 0.9);
+    final r = 0.015 * math.sin(time * 3 + c.id);
     for (var sd = -1; sd <= 1; sd += 2) {
-      final a = _toW(b, 0.22, 0.01 * sd), e = _toW(b, 0.4 + r, (0.12 + r) * sd);
-      _line(a.$1, a.$2, e.$1, e.$2, _inkC, c.depth, last: s > 36 ? 'o' : null, light: 1.6);
+      final a = _toW(b, 0.24, 0.015 * sd), e = _toW(b, 0.42 + r, (0.13 + r) * sd);
+      _line(a.$1, a.$2, e.$1, e.$2, bodyC, c.depth, last: 'o');
     }
     final h = math.max(0, -math.sin(c.phase)) * (1 - c.glide);
     for (var sd = -1; sd <= 1; sd += 2) {
@@ -855,21 +867,22 @@ class AsciiWorld {
   }
 
   void _dragon(_Cr c) {
-    const body = [50, 200, 130], head = [40, 160, 110], wing = [226, 236, 214], red = [236, 120, 70];
-    final s = c.span, beat = math.cos(c.phase).abs();
-    final p0 = _toW(c, 0.2, 0), p1 = _toW(c, -0.32, 0);
-    final perp = c.m == 1 ? 0.1 : 0.3;
-    for (var sd = -1; sd <= 1; sd += 2) {
-      for (var p = 0; p < 2; p++) {
-        final u = 0.1 - p * 0.1, w = _toW(c, u, 0.02 * sd);
-        final sp = (0.15 + 0.15 * beat * (p == 1 ? 0.8 : 1)) * s;
-        final cx = w.$1 + (-math.sin(c.heading) * sd) * sp * 0.5, cy = w.$2 + (math.cos(c.heading) * sd) * sp * 0.5;
-        _ell(cx, cy, 0.09 * s, sp * 0.5 + 1, c.heading + sd * (0.12 + perp * 0.2) * (p == 1 ? -1 : 1), wing, _Kind.light, c.depth, c.id, 0.9);
+    // A solid bright body, a big head and four long narrow wings across it that beat.
+    const body = [40, 225, 175], head = [255, 255, 255], wing = [175, 225, 255], red = [255, 110, 70], eyeC = [10, 30, 40];
+    final s = c.span, beat = math.cos(c.phase).abs(), bs = 0.6 + 0.4 * beat;
+    final p0 = _toW(c, 0.3, 0), p1 = _toW(c, -0.42, 0);
+    for (var p = 0; p < 2; p++) {
+      for (var sd = -1; sd <= 1; sd += 2) {
+        final u = 0.14 - 0.16 * p, w = _toW(c, u, sd * 0.2 * bs);
+        _ell(w.$1, w.$2, 0.21 * s * bs, 0.065 * s, c.heading + _pi / 2 + sd * (p == 1 ? 0.28 : -0.28), wing, _Kind.body, c.depth, c.id, 0.9);
       }
     }
-    _cap(p0.$1, p0.$2, p1.$1, p1.$2, math.max(1.0, 0.03 * s), body, _Kind.edge, c.depth, c.id);
+    _cap(p0.$1, p0.$2, p1.$1, p1.$2, math.max(2.2, 0.04 * s), body, _Kind.body, c.depth, c.id, 1.1);
     _dot(p1.$1, p1.$2, '~', red, c.depth);
-    _spot(p0.$1 + math.cos(c.heading) * 2, p0.$2 + math.sin(c.heading) * 2, 'O', head, wing, c.depth);
+    final hd = _toW(c, 0.33, 0);
+    _spot(hd.$1, hd.$2, 'O', body, head, c.depth);
+    final e = _toW(c, 0.36, 0.05);
+    _dot(e.$1, e.$2, '.', eyeC, c.depth);
     final h = _toW(c, 0.08, 0);
     _shed(h.$1, h.$2, 0.01 * c.depth);
   }
